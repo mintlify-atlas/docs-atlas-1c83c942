@@ -54,6 +54,7 @@ client = TikTokClient(proxy_manager=proxy_manager, data_only_proxy=True)
 Extract video or slideshow information from a TikTok URL.
 
 ```python
+# For videos
 video_info = await client.video("https://www.tiktok.com/@user/video/123456")
 
 if video_info.is_video:
@@ -64,6 +65,11 @@ if video_info.is_video:
 else:
     # Slideshow - images need to be downloaded separately
     print(f"Slideshow with {len(video_info.image_urls)} images")
+    
+    # Create ProxySession for slideshow downloads
+    proxy_manager = ProxyManager.get_instance()
+    proxy_session = ProxySession(proxy_manager)
+    
     with video_info:  # Use context manager for proper cleanup
         images = await client.download_slideshow_images(
             video_info,
