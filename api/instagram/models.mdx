@@ -1,0 +1,161 @@
+---
+title: "Instagram models"
+description: "Data models for Instagram content"
+---
+
+## InstagramMediaItem
+
+Represents a single media item from an Instagram post.
+
+### Fields
+
+<ParamField path="type" type="str" required>
+  The media type: `"video"` or `"image"`
+</ParamField>
+
+<ParamField path="url" type="str" required>
+  Direct URL to the media file
+</ParamField>
+
+<ParamField path="thumbnail" type="str | None" default="None">
+  Thumbnail image URL (if available)
+</ParamField>
+
+<ParamField path="quality" type="str | None" default="None">
+  Quality indicator for the media (if provided by API)
+</ParamField>
+
+### Example
+
+```python
+from instagram_api.models import InstagramMediaItem
+
+item = InstagramMediaItem(
+    type="video",
+    url="https://example.com/video.mp4",
+    thumbnail="https://example.com/thumb.jpg",
+    quality="hd"
+)
+
+print(item.type)  # "video"
+print(item.url)   # "https://example.com/video.mp4"
+```
+
+## InstagramMediaInfo
+
+Contains complete media information for an Instagram post, including all media items and helper properties.
+
+### Fields
+
+<ParamField path="media" type="list[InstagramMediaItem]" default="[]">
+  List of media items in the post. Single item for regular posts/videos, multiple items for carousel posts.
+</ParamField>
+
+<ParamField path="link" type="str" default="''">
+  The original Instagram URL for the post
+</ParamField>
+
+### Properties
+
+#### is_video
+
+Returns `True` if the post contains a single video item.
+
+```python
+@property
+def is_video(self) -> bool
+```
+
+<ResponseField name="is_video" type="bool">
+  `True` when the post has exactly one media item of type `"video"`
+</ResponseField>
+
+#### is_carousel
+
+Returns `True` if the post contains multiple media items (carousel/album).
+
+```python
+@property
+def is_carousel(self) -> bool
+```
+
+<ResponseField name="is_carousel" type="bool">
+  `True` when the post has more than one media item
+</ResponseField>
+
+#### image_urls
+
+Returns a list of URLs for all image items in the post.
+
+```python
+@property
+def image_urls(self) -> list[str]
+```
+
+<ResponseField name="image_urls" type="list[str]">
+  List of direct URLs to all images in the post (excludes videos)
+</ResponseField>
+
+#### video_url
+
+Returns the URL of the first video found in the post.
+
+```python
+@property
+def video_url(self) -> str | None
+```
+
+<ResponseField name="video_url" type="str | None">
+  URL of the first video item, or `None` if no videos are present
+</ResponseField>
+
+#### thumbnail_url
+
+Returns the first available thumbnail URL from any media item.
+
+```python
+@property
+def thumbnail_url(self) -> str | None
+```
+
+<ResponseField name="thumbnail_url" type="str | None">
+  The first thumbnail URL found, or `None` if no thumbnails are available
+</ResponseField>
+
+### Example Usage
+
+```python
+from instagram_api.models import InstagramMediaInfo, InstagramMediaItem
+
+# Single video post
+video_post = InstagramMediaInfo(
+    media=[
+        InstagramMediaItem(
+            type="video",
+            url="https://example.com/video.mp4",
+            thumbnail="https://example.com/thumb.jpg"
+        )
+    ],
+    link="https://instagram.com/p/ABC123/"
+)
+
+print(video_post.is_video)      # True
+print(video_post.is_carousel)   # False
+print(video_post.video_url)     # "https://example.com/video.mp4"
+print(video_post.thumbnail_url) # "https://example.com/thumb.jpg"
+
+# Carousel post with mixed media
+carousel_post = InstagramMediaInfo(
+    media=[
+        InstagramMediaItem(type="image", url="https://example.com/img1.jpg"),
+        InstagramMediaItem(type="video", url="https://example.com/vid.mp4"),
+        InstagramMediaItem(type="image", url="https://example.com/img2.jpg")
+    ],
+    link="https://instagram.com/p/XYZ789/"
+)
+
+print(carousel_post.is_carousel)  # True
+print(len(carousel_post.media))   # 3
+print(carousel_post.image_urls)   # ["https://example.com/img1.jpg", "https://example.com/img2.jpg"]
+print(carousel_post.video_url)    # "https://example.com/vid.mp4"
+```

@@ -1,0 +1,516 @@
+---
+title: "Media Types"
+description: "Media processing and delivery for videos, images, and music"
+---
+
+## Overview
+
+The `media_types` package handles downloading, processing, and sending media to users. It provides unified interfaces for videos, images (slideshows), and music with support for different delivery modes and storage.
+
+## Core Modules
+
+### send_video.py
+
+Handles video delivery to Telegram.
+
+#### `send_video_result()`
+
+**Location:** `media_types/send_video.py:11`
+
+Sends TikTok videos to users or inline messages.
+
+```python
+async def send_video_result(
+    targed_id: int | str,
+    video_info: VideoInfo,
+    lang: str,
+    file_mode: bool,
+    inline_message: bool = False,
+    reply_to_message_id: int | None = None,
+    user_id: int | None = None,
+    username: str | None = None,
+    full_name: str | None = None,
+) -> None:
+    # Sends video as media or document
+```
+
+**Parameters:**
+- `targed_id` - Chat ID (int) or inline message ID (str)
+- `video_info` - VideoInfo object with video data and metadata
+- `lang` - User's language code
+- `file_mode` - If True, send as document; if False, send as video
+- `inline_message` - If True, edit inline message (requires storage upload)
+- `reply_to_message_id` - Message ID to reply to
+- `user_id`, `username`, `full_name` - User info for storage caption
+
+**Features:**
+- Automatic thumbnail generation (videos > 60s in normal mode, > 30s in inline)
+- File mode vs. media mode
+- Inline message editing via storage channel
+- Music button attachment
+- Streaming support
+
+**Example:**
+
+```python
+from media_types import send_video_result
+
+# Send video in normal mode
+await send_video_result(
+    targed_id=message.chat.id,
+    video_info=video_info,
+    lang="en",
+    file_mode=False,
+    reply_to_message_id=message.message_id,
+)
+
+# Send video in inline mode
+await send_video_result(
+    targed_id=inline_message_id,
+    video_info=video_info,
+    lang="en",
+    file_mode=False,
+    inline_message=True,
+    user_id=user_id,
+    username=username,
+    full_name=full_name,
+)
+```
+
+### send_music.py
+
+Extracts and sends TikTok audio tracks.
+
+#### `send_music_result()`
+
+**Location:** `media_types/send_music.py:9`
+
+Sends music/audio extracted from TikTok videos.
+
+```python
+async def send_music_result(
+    query_msg,
+    music_info: MusicInfo,
+    lang: str,
+    group_chat: bool
+) -> None:
+    # Downloads and sends audio with metadata
+```
+
+**Parameters:**
+- `query_msg` - Message to reply to
+- `music_info` - MusicInfo object with audio data and metadata
+- `lang` - User's language code
+- `group_chat` - If True, disables notification
+
+**Features:**
+- Downloads cover art as thumbnail
+- Sets audio metadata (title, performer, duration)
+- Supports both direct bytes and URL downloads
+- Silent notifications in group chats
+
+**Example:**
+
+```python
+from media_types import send_music_result
+
+music_info = await api.music(video_id)
+await send_music_result(
+    query_msg=message,
+    music_info=music_info,
+    lang="en",
+    group_chat=False,
+)
+```
+
+### send_images.py
+
+Processes and sends TikTok slideshows (image carousels).
+
+#### `send_image_result()`
+
+**Location:** `media_types/send_images.py:42`
+
+Downloads, processes, and sends slideshow images.
+
+```python
+async def send_image_result(
+    user_msg,
+    video_info: VideoInfo,
+    lang: str,
+    file_mode: bool,
+    image_limit: int | None,
+    client: TikTokClient,
+) -> bool:
+    # Downloads and sends images in batches
+    # Returns True if image processing was performed
+```
+
+**Parameters:**
+- `user_msg` - Message to reply to
+- `video_info` - VideoInfo object with image URLs
+- `lang` - User's language code
+- `file_mode` - If True, send as documents; if False, send as photos
+- `image_limit` - Max images to send (None for all, 10 for groups)
+- `client` - TikTokClient instance for downloading
+
+**Returns:**
+- `bool` - True if images were converted/processed, False otherwise
+
+**Features:**
+- Parallel image downloads
+- Automatic format conversion (HEIC/WEBP → JPEG)
+- Batching (10 images per media group)
+- Processing status message
+- Retry with proxy rotation
+- Music button attachment
+
+**Image Processing:**
+
+```python
+# Detects non-native formats and converts to JPEG
+if not file_mode and IMAGE_CONVERSION_AVAILABLE:
+    extension = detect_image_format(img_bytes)
+    if extension not in _NATIVE_EXTENSIONS:  # .jpg, .jpeg, .png, .gif
+        img_bytes = await loop.run_in_executor(
+            executor, convert_image_to_jpeg_optimized, img_bytes
+        )
+```
+
+**Batching Logic:**
+
+```python
+# Split into batches of 10 (Telegram media group limit)
+batches = [
+    all_image_bytes[x:x + 10]
+    for x in range(0, len(all_image_bytes), 10)
+]
+
+# Sleep between batches to avoid rate limits
+match image_pages:
+    case 1: sleep_time = 0
+    case 2: sleep_time = 1
+    case 3 | 4: sleep_time = 2
+    case _: sleep_time = 3
+```
+
+**Example:**
+
+```python
+from media_types import send_image_result
+
+# Send slideshow with limit (group chat)
+was_processed = await send_image_result(
+    user_msg=message,
+    video_info=video_info,
+    lang="en",
+    file_mode=False,
+    image_limit=10,  # Limit to 10 images in groups
+    client=api,
+)
+
+# Send all images (private chat)
+was_processed = await send_image_result(
+    user_msg=message,
+    video_info=video_info,
+    lang="en",
+    file_mode=False,
+    image_limit=None,  # Send all images
+    client=api,
+)
+```
+
+#### `download_images_parallel()`
+
+**Location:** `media_types/send_images.py:31`
+
+Downloads multiple images concurrently.
+
+```python
+async def download_images_parallel(
+    image_urls: list[str],
+    client: TikTokClient,
+    video_info: VideoInfo,
+) -> list[bytes | BaseException]:
+    # Returns list of image bytes or exceptions
+```
+
+### storage.py
+
+Manages media storage channel for inline message editing.
+
+#### Why Storage Channel?
+
+Telegram requires `file_id` to edit inline messages - you cannot upload new files directly. The storage channel receives uploads and provides file IDs for inline edits.
+
+#### `upload_video_to_storage()`
+
+**Location:** `media_types/storage.py:64`
+
+```python
+async def upload_video_to_storage(
+    video_data: bytes,
+    video_info: VideoInfo,
+    user_id: int | None = None,
+    username: str | None = None,
+    full_name: str | None = None,
+    thumbnail: BufferedInputFile | None = None,
+) -> str | None:
+    # Uploads video to storage channel
+    # Returns file_id or None on failure
+```
+
+**Returns:** `file_id` string or `None` if upload fails
+
+#### `upload_photo_to_storage()`
+
+**Location:** `media_types/storage.py:33`
+
+```python
+async def upload_photo_to_storage(
+    photo_data: bytes,
+    source_link: str,
+    user_id: int | None = None,
+    username: str | None = None,
+    full_name: str | None = None,
+) -> str | None:
+    # Uploads photo to storage channel
+    # Returns file_id or None on failure
+```
+
+**Storage Caption Format:**
+
+```html
+<a href='SOURCE_LINK'>Source</a>
+
+<b><a href="tg://user?id=USER_ID">FULL_NAME</a></b>
+@username
+<code>USER_ID</code>
+```
+
+**Configuration:**
+
+```python
+from media_types.storage import STORAGE_CHANNEL_ID
+
+# Set in config or .env
+STORAGE_CHANNEL_ID = config["bot"].get("storage_channel")
+```
+
+### image_processing.py
+
+Image format detection and conversion utilities.
+
+#### Key Constants
+
+```python
+IMAGE_CONVERSION_AVAILABLE = True  # If Pillow is installed
+_NATIVE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif")
+```
+
+#### `detect_image_format()`
+
+Detects image format from bytes (magic number detection).
+
+```python
+def detect_image_format(image_data: bytes) -> str:
+    # Returns extension: .jpg, .png, .gif, .webp, .heic, etc.
+```
+
+#### `convert_image_to_jpeg_optimized()`
+
+Converts non-native formats to JPEG with optimization.
+
+```python
+def convert_image_to_jpeg_optimized(image_data: bytes) -> bytes:
+    # Converts HEIC, WEBP, etc. to JPEG
+    # Optimizes quality and size
+```
+
+#### `ensure_native_format()`
+
+Ensures image is in Telegram-supported format.
+
+```python
+async def ensure_native_format(image_data: bytes) -> bytes:
+    # Converts to PNG if needed
+    # Returns native format bytes
+```
+
+### ui.py
+
+UI components for media messages.
+
+#### `music_button()`
+
+**Location:** `media_types/ui.py:7`
+
+Creates inline button to extract music.
+
+```python
+def music_button(video_id: int, lang: str) -> InlineKeyboardMarkup:
+    # Returns keyboard with "Get Sound" button
+    # Callback data: f"id/{video_id}"
+```
+
+#### `result_caption()`
+
+**Location:** `media_types/ui.py:13`
+
+Generates caption for sent media.
+
+```python
+def result_caption(
+    lang: str, 
+    link: str, 
+    group_warning: bool | None = None
+) -> str:
+    # Returns formatted caption with bot tag and source link
+    # Optionally adds group warning (image limit)
+```
+
+**Example Output:**
+
+```
+🤖 @ttdown_bot
+
+Source: https://tiktok.com/@user/video/123
+
+⚠️ Only first 10 images shown in groups
+```
+
+### errors.py
+
+Centralized error message handling.
+
+#### `get_error_message()`
+
+**Location:** `media_types/errors.py:29`
+
+Maps exceptions to localized error messages.
+
+```python
+def get_error_message(error: Exception, lang: str) -> str:
+    # Maps error type to locale key
+    # Returns localized error message
+```
+
+**Error Mappings:**
+
+```python
+_ERROR_MAP = {
+    TikTokDeletedError: "error_deleted",
+    TikTokPrivateError: "error_private",
+    TikTokInvalidLinkError: "link_error",
+    TikTokNetworkError: "error_network",
+    TikTokRateLimitError: "error_rate_limit",
+    TikTokRegionError: "error_region",
+    TikTokVideoTooLongError: "error_too_long",
+}
+```
+
+#### `register_error_mapping()`
+
+**Location:** `media_types/errors.py:25`
+
+Registers custom error mappings.
+
+```python
+def register_error_mapping(exception_type: type, locale_key: str) -> None:
+    # Adds exception type to error map
+```
+
+**Example:**
+
+```python
+from media_types import register_error_mapping
+from instagram_api import InstagramError
+
+register_error_mapping(InstagramError, "error_instagram")
+```
+
+## Media Delivery Flow
+
+### Video Delivery
+
+```python
+# 1. Fetch video info
+video_info = await api.video(video_link)
+
+# 2. Send video
+from media_types import send_video_result
+await send_video_result(
+    targed_id=chat_id,
+    video_info=video_info,
+    lang=lang,
+    file_mode=file_mode,
+    reply_to_message_id=message_id,
+)
+
+# 3. Clean up resources
+video_info.close()
+```
+
+### Slideshow Delivery
+
+```python
+# 1. Fetch video info
+video_info = await api.video(video_link)
+
+# 2. Check if slideshow
+if video_info.is_slideshow:
+    # 3. Send images
+    from media_types import send_image_result
+    was_processed = await send_image_result(
+        user_msg=message,
+        video_info=video_info,
+        lang=lang,
+        file_mode=file_mode,
+        image_limit=10 if group_chat else None,
+        client=api,
+    )
+
+# 4. Clean up resources
+video_info.close()
+```
+
+### Music Delivery
+
+```python
+# 1. Fetch music info
+music_info = await api.music(video_id)
+
+# 2. Send music
+from media_types import send_music_result
+await send_music_result(
+    query_msg=message,
+    music_info=music_info,
+    lang=lang,
+    group_chat=group_chat,
+)
+```
+
+## File Mode vs. Media Mode
+
+**File Mode** (`file_mode=True`):
+- Sends as document
+- Preserves original quality
+- No compression
+- Larger file sizes
+
+**Media Mode** (`file_mode=False`):
+- Sends as video/photo
+- Telegram compression applied
+- Smaller file sizes
+- Streaming support for videos
+
+## Best Practices
+
+1. **Always close VideoInfo** after processing slideshows
+2. **Use storage channel** for inline message edits
+3. **Limit images** to 10 in group chats
+4. **Convert non-native formats** in photo mode
+5. **Add delays** between media group batches
+6. **Handle download failures** gracefully
+7. **Generate thumbnails** for long videos
+8. **Use music buttons** for video results

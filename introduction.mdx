@@ -1,0 +1,246 @@
+---
+title: Introduction
+description: Production-grade Telegram bot for downloading TikTok and Instagram content without watermarks
+mode: custom
+---
+
+<div className="relative overflow-hidden bg-gradient-to-br from-[#27a5e4] via-[#1d8ec7] to-[#1577a8] dark:from-[#1d7db8] dark:via-[#165d88] dark:to-[#0f4a6b] py-20">
+  <div className="max-w-6xl mx-auto px-6">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+      <div className="lg:col-span-7">
+        <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-white mb-6">
+          Download TikTok & Instagram content effortlessly
+        </h1>
+        <p className="text-lg sm:text-xl text-white/90 mb-8 max-w-2xl">
+          Production-grade Telegram bot with intelligent proxy rotation, 3-part retry strategy, and support for videos, slideshows, and audio — all without watermarks.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          <a
+            href="/quickstart"
+            className="inline-flex items-center px-6 py-3 rounded-lg bg-white text-[#27a5e4] font-semibold hover:bg-gray-100 transition-colors no-underline"
+          >
+            Get started
+            <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </a>
+          <a
+            href="/api/tiktok/client"
+            className="inline-flex items-center px-6 py-3 rounded-lg border-2 border-white/30 bg-white/10 text-white font-semibold hover:bg-white/20 transition-colors no-underline"
+          >
+            View API reference
+          </a>
+        </div>
+      </div>
+      <div className="lg:col-span-5 flex justify-center">
+        <img
+          src="https://media.brand.dev/d9aa03fb-2167-4259-8d10-ef17e697543a.png"
+          alt="TT-Bot logo"
+          className="w-48 h-48 sm:w-64 sm:h-64 object-contain"
+          noZoom
+        />
+      </div>
+    </div>
+  </div>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Get started in minutes
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Deploy TT-Bot with Docker and start downloading content immediately
+  </p>
+
+  <Steps>
+    <Step title="Clone the repository">
+      Get the source code from GitHub:
+
+      ```bash
+      git clone https://github.com/karilaa-dev/tt-bot.git
+      cd tt-bot
+      ```
+    </Step>
+
+    <Step title="Configure environment">
+      Copy the example environment file and add your Telegram bot token:
+
+      ```bash
+      cp .env.example .env
+      ```
+
+      Set at minimum:
+      - `BOT_TOKEN` — Your Telegram bot token from [@BotFather](https://t.me/BotFather)
+      - `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` — From [my.telegram.org](https://my.telegram.org)
+
+      <Accordion title="Example .env configuration">
+        ```bash
+        BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+        TELEGRAM_API_ID=1234567
+        TELEGRAM_API_HASH=abc123def456
+        TG_SERVER=http://telegram-bot-api:8081
+        DB_URL=postgresql://postgres:postgres@db/ttbot-db
+        ```
+      </Accordion>
+    </Step>
+
+    <Step title="Launch with Docker Compose">
+      Start the bot along with the local Telegram Bot API server and PostgreSQL database:
+
+      ```bash
+      docker compose up -d
+      ```
+
+      The bot will automatically:
+      - Initialize the database schema
+      - Connect to Telegram
+      - Start processing user requests
+    </Step>
+
+    <Step title="Send a TikTok or Instagram link">
+      Open Telegram and send any TikTok or Instagram link to your bot. The bot will automatically detect the platform and download the content without watermarks.
+
+      <Tip>
+        The bot supports videos, slideshows, and audio extraction from both platforms.
+      </Tip>
+    </Step>
+  </Steps>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Key features
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Production-ready features for reliable content downloads at scale
+  </p>
+
+  <CardGroup cols={2}>
+    <Card title="Multi-platform support" icon="film" href="/features/tiktok-downloads">
+      Download videos, slideshows, and audio from TikTok and Instagram without watermarks
+    </Card>
+    <Card title="Smart retry strategy" icon="rotate" href="/architecture/retry-strategy">
+      3-part retry system with automatic proxy rotation for maximum reliability
+    </Card>
+    <Card title="Proxy rotation" icon="shield" href="/configuration/proxy-setup">
+      Load-balanced proxy rotation to bypass rate limits and geographic restrictions
+    </Card>
+    <Card title="Multi-language" icon="globe" href="/configuration/localization">
+      Support for 8 languages: English, Russian, Arabic, Hindi, Indonesian, Ukrainian, Somali, Vietnamese
+    </Card>
+    <Card title="Queue management" icon="list-check" href="/features/queue-management">
+      Per-user concurrency limits and intelligent queue processing
+    </Card>
+    <Card title="Admin controls" icon="user-shield" href="/features/admin-commands">
+      Broadcast messages, user management, and system statistics
+    </Card>
+  </CardGroup>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Architecture highlights
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Built on modern Python stack with production-grade patterns
+  </p>
+
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <a
+      href="/architecture/overview"
+      className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#27a5e4] dark:hover:border-[#27a5e4] overflow-hidden transition-colors no-underline bg-white dark:bg-[#1a1d27]"
+    >
+      <div className="p-6">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-lg bg-[#27a5e4]/10 dark:bg-[#27a5e4]/20 flex items-center justify-center">
+            <svg className="w-5 h-5 text-[#27a5e4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+            </svg>
+          </div>
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white">System architecture</h3>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Modular design with separation of concerns: handlers, API clients, media processing, and database layers
+        </p>
+        <span className="text-sm font-medium text-[#27a5e4] group-hover:underline inline-flex items-center">
+          Learn more
+          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </span>
+      </div>
+    </a>
+
+    <a
+      href="/architecture/retry-strategy"
+      className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#27a5e4] dark:hover:border-[#27a5e4] overflow-hidden transition-colors no-underline bg-white dark:bg-[#1a1d27]"
+    >
+      <div className="p-6">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-lg bg-[#27a5e4]/10 dark:bg-[#27a5e4]/20 flex items-center justify-center">
+            <svg className="w-5 h-5 text-[#27a5e4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </div>
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white">3-part retry strategy</h3>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Independent retry logic for URL resolution, metadata extraction, and download with automatic proxy rotation
+        </p>
+        <span className="text-sm font-medium text-[#27a5e4] group-hover:underline inline-flex items-center">
+          Learn more
+          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </span>
+      </div>
+    </a>
+
+    <a
+      href="/architecture/media-processing"
+      className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#27a5e4] dark:hover:border-[#27a5e4] overflow-hidden transition-colors no-underline bg-white dark:bg-[#1a1d27]"
+    >
+      <div className="p-6">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-lg bg-[#27a5e4]/10 dark:bg-[#27a5e4]/20 flex items-center justify-center">
+            <svg className="w-5 h-5 text-[#27a5e4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white">Media processing</h3>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Shared session pools, HEIF/AVIF conversion, thumbnail extraction, and optimized file handling
+        </p>
+        <span className="text-sm font-medium text-[#27a5e4] group-hover:underline inline-flex items-center">
+          Learn more
+          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </span>
+      </div>
+    </a>
+  </div>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="rounded-2xl bg-gradient-to-r from-[#27a5e4] to-[#1577a8] dark:from-[#1d7db8] dark:to-[#0f4a6b] p-8 sm:p-12">
+    <div className="max-w-3xl">
+      <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4">
+        Ready to deploy your bot?
+      </h2>
+      <p className="text-lg text-white/90 mb-6">
+        Get your Telegram bot running in production with Docker Compose in under 5 minutes.
+      </p>
+      <a
+        href="/quickstart"
+        className="inline-flex items-center px-6 py-3 rounded-lg bg-white text-[#27a5e4] font-semibold hover:bg-gray-100 transition-colors no-underline"
+      >
+        View quickstart guide
+        <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </a>
+    </div>
+  </div>
+</div>

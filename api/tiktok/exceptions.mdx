@@ -1,0 +1,386 @@
+---
+title: "TikTok Exceptions"
+description: "Exception types for TikTok API errors"
+---
+
+## Overview
+
+The TikTok API module provides a hierarchy of exception classes to handle different error scenarios. All exceptions inherit from the base `TikTokError` class, allowing you to catch all TikTok-related errors with a single exception handler.
+
+## Exception Hierarchy
+
+```
+TikTokError (base)
+├── TikTokDeletedError
+├── TikTokPrivateError
+├── TikTokNetworkError
+├── TikTokRateLimitError
+├── TikTokRegionError
+├── TikTokExtractionError
+├── TikTokVideoTooLongError
+└── TikTokInvalidLinkError
+```
+
+## Exception Classes
+
+### TikTokError
+
+Base exception for all TikTok API errors.
+
+```python
+from tiktok_api.exceptions import TikTokError
+
+try:
+    video_info = await client.video(url)
+except TikTokError as e:
+    print(f"TikTok error occurred: {e}")
+```
+
+Use this to catch any TikTok-related error without handling specific types.
+
+### TikTokDeletedError
+
+Raised when a video has been deleted by the creator or removed by TikTok.
+
+```python
+from tiktok_api.exceptions import TikTokDeletedError
+
+try:
+    video_info = await client.video(url)
+except TikTokDeletedError:
+    print("This video has been deleted")
+```
+
+**When raised:**
+- Video returns status code 10204 (not found)
+- Video returns status code 10216 (under review)
+- yt-dlp returns "unavailable", "removed", or "deleted" error
+
+**Retry behavior:** Not retried (permanent error)
+
+### TikTokPrivateError
+
+Raised when a video is private and cannot be accessed.
+
+```python
+from tiktok_api.exceptions import TikTokPrivateError
+
+try:
+    video_info = await client.video(url)
+except TikTokPrivateError:
+    print("This video is private")
+```
+
+**When raised:**
+- Video returns status code 10222 (private)
+- yt-dlp returns "private" error
+
+**Retry behavior:** Not retried (permanent error)
+
+**Note:** Videos may be accessible if you provide cookies from an authenticated session that has permission to view the video.
+
+### TikTokNetworkError
+
+Raised when a network error occurs during the request.
+
+```python
+from tiktok_api.exceptions import TikTokNetworkError
+
+try:
+    video_info = await client.video(url)
+except TikTokNetworkError as e:
+    print(f"Network error: {e}")
+    # Maybe retry with exponential backoff
+```
+
+**When raised:**
+- Media download fails after all retry attempts
+- Connection timeout
+- CDN returns persistent errors (403, 500, 502, 503, 504)
+
+**Retry behavior:** Retried with proxy rotation (transient error)
+
+### TikTokRateLimitError
+
+Raised when too many requests have been made and TikTok is rate limiting.
+
+```python
+from tiktok_api.exceptions import TikTokRateLimitError
+import asyncio
+
+try:
+    video_info = await client.video(url)
+except TikTokRateLimitError:
+    print("Rate limited, waiting 60 seconds...")
+    await asyncio.sleep(60)
+    # Retry with different proxy
+```
+
+**When raised:**
+- yt-dlp returns "rate", "too many", or "429" error
+- TikTok API returns rate limit response
+
+**Retry behavior:** Retried with proxy rotation
+
+**Mitigation:**
+- Use proxy rotation to distribute requests across IPs
+- Add delays between requests
+- Use cookies from authenticated sessions (higher rate limits)
+
+### TikTokRegionError
+
+Raised when a video is not available in the user's region (geo-blocked).
+
+```python
+from tiktok_api.exceptions import TikTokRegionError
+
+try:
+    video_info = await client.video(url)
+except TikTokRegionError:
+    print("This video is geo-blocked in your region")
+    # Retry with proxy from different country
+```
+
+**When raised:**
+- Video is geo-restricted
+- yt-dlp returns "region", "geo", "country", or "not available in your" error
+
+**Retry behavior:** Not retried (permanent error for current region)
+
+**Mitigation:**
+- Use proxies from regions where the video is available
+- Some videos are only available in specific countries
+
+### TikTokExtractionError
+
+Raised when extraction/parsing fails for unknown reasons.
+
+```python
+from tiktok_api.exceptions import TikTokExtractionError
+
+try:
+    video_info = await client.video(url)
+except TikTokExtractionError as e:
+    print(f"Extraction failed: {e}")
+    # This might indicate TikTok changed their API
+```
+
+**When raised:**
+- yt-dlp extraction fails
+- Invalid video ID
+- TikTok page structure changed
+- Incompatible yt-dlp version
+- No video data returned
+
+**Retry behavior:** Retried with proxy rotation (might be transient)
+
+**Troubleshooting:**
+1. Update yt-dlp: `pip install -U yt-dlp`
+2. Check if TikTok changed their page structure
+3. Verify the URL is valid
+4. Check yt-dlp GitHub issues
+
+### TikTokVideoTooLongError
+
+Raised when a video exceeds the maximum allowed duration.
+
+```python
+from tiktok_api.exceptions import TikTokVideoTooLongError
+
+try:
+    video_info = await client.video(url)
+except TikTokVideoTooLongError:
+    print("Video is too long to process")
+```
+
+**When raised:**
+- Video duration exceeds configured maximum (if max_duration is set in config)
+
+**Retry behavior:** Not retried (permanent error)
+
+**Note:** This is typically configured by the application to limit resource usage.
+
+### TikTokInvalidLinkError
+
+Raised when a TikTok link is invalid or expired.
+
+```python
+from tiktok_api.exceptions import TikTokInvalidLinkError
+
+try:
+    video_info = await client.video(url)
+except TikTokInvalidLinkError:
+    print("Invalid or expired TikTok link")
+```
+
+**When raised:**
+- URL doesn't match any known TikTok URL pattern
+- Short URL resolution fails after all retries
+- URL redirects to unexpected domain
+
+**Retry behavior:** Retried with proxy rotation during URL resolution
+
+## Error Handling Patterns
+
+### Basic Error Handling
+
+Handle all TikTok errors uniformly:
+
+```python
+from tiktok_api import TikTokClient
+from tiktok_api.exceptions import TikTokError
+
+client = TikTokClient()
+
+try:
+    video_info = await client.video(url)
+    # Process video_info
+except TikTokError as e:
+    print(f"Error downloading TikTok video: {e}")
+```
+
+### Granular Error Handling
+
+Handle specific errors differently:
+
+```python
+from tiktok_api import TikTokClient
+from tiktok_api.exceptions import (
+    TikTokDeletedError,
+    TikTokPrivateError,
+    TikTokRegionError,
+    TikTokRateLimitError,
+    TikTokNetworkError,
+    TikTokError,
+)
+
+client = TikTokClient()
+
+try:
+    video_info = await client.video(url)
+except TikTokDeletedError:
+    print("Video was deleted by the creator")
+except TikTokPrivateError:
+    print("Video is private - authentication required")
+except TikTokRegionError:
+    print("Video is geo-blocked - try a different proxy region")
+except TikTokRateLimitError:
+    print("Rate limited - waiting before retry")
+    await asyncio.sleep(60)
+except TikTokNetworkError:
+    print("Network error - check your connection")
+except TikTokError as e:
+    print(f"Other TikTok error: {e}")
+```
+
+### Retry with Different Proxy
+
+Handle transient errors by retrying with a different proxy:
+
+```python
+from tiktok_api import TikTokClient, ProxyManager
+from tiktok_api.exceptions import (
+    TikTokRateLimitError,
+    TikTokNetworkError,
+    TikTokExtractionError,
+)
+import asyncio
+
+proxy_manager = ProxyManager.initialize("proxies.txt")
+client = TikTokClient(proxy_manager=proxy_manager)
+
+max_attempts = 3
+for attempt in range(max_attempts):
+    try:
+        video_info = await client.video(url)
+        print("Success!")
+        break
+    except (TikTokRateLimitError, TikTokNetworkError, TikTokExtractionError) as e:
+        if attempt < max_attempts - 1:
+            print(f"Attempt {attempt + 1} failed: {e}. Retrying...")
+            await asyncio.sleep(2 ** attempt)  # Exponential backoff
+        else:
+            print(f"All attempts failed: {e}")
+            raise
+```
+
+### User-Friendly Error Messages
+
+Provide clear messages to end users:
+
+```python
+from tiktok_api.exceptions import (
+    TikTokDeletedError,
+    TikTokPrivateError,
+    TikTokRegionError,
+    TikTokRateLimitError,
+    TikTokNetworkError,
+    TikTokInvalidLinkError,
+    TikTokExtractionError,
+    TikTokVideoTooLongError,
+)
+
+def get_user_friendly_error(error: Exception) -> str:
+    """Convert TikTok exceptions to user-friendly messages."""
+    if isinstance(error, TikTokDeletedError):
+        return "😔 This video has been deleted and is no longer available."
+    elif isinstance(error, TikTokPrivateError):
+        return "🔒 This video is private and cannot be downloaded."
+    elif isinstance(error, TikTokRegionError):
+        return "🌍 This video is not available in your region."
+    elif isinstance(error, TikTokRateLimitError):
+        return "⏳ Too many requests. Please try again in a few minutes."
+    elif isinstance(error, TikTokNetworkError):
+        return "📡 Network error. Please check your connection and try again."
+    elif isinstance(error, TikTokInvalidLinkError):
+        return "❌ Invalid TikTok link. Please check the URL and try again."
+    elif isinstance(error, TikTokVideoTooLongError):
+        return "⏱️ This video is too long to process."
+    elif isinstance(error, TikTokExtractionError):
+        return "⚠️ Failed to extract video data. TikTok might have changed their system."
+    else:
+        return f"❌ An error occurred: {error}"
+
+# Usage
+try:
+    video_info = await client.video(url)
+except Exception as e:
+    user_message = get_user_friendly_error(e)
+    print(user_message)
+```
+
+### Logging Errors
+
+Log errors for debugging while showing user-friendly messages:
+
+```python
+import logging
+from tiktok_api.exceptions import TikTokError
+
+logger = logging.getLogger(__name__)
+
+try:
+    video_info = await client.video(url)
+except TikTokError as e:
+    logger.error(
+        f"Failed to download TikTok video",
+        exc_info=True,
+        extra={
+            "url": url,
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+        }
+    )
+    # Show user-friendly message to user
+    print(get_user_friendly_error(e))
+```
+
+## Best Practices
+
+1. **Always catch TikTokError** - Use the base exception to catch all TikTok-related errors
+2. **Handle permanent vs transient errors** - Don't retry deleted/private/region errors
+3. **Use proxy rotation** - Handle rate limits and network errors by rotating proxies
+4. **Provide user feedback** - Convert exceptions to user-friendly messages
+5. **Log for debugging** - Keep detailed logs while showing simple messages to users
+6. **Update yt-dlp regularly** - Many extraction errors are fixed by updating yt-dlp
+7. **Use cookies for authentication** - Reduces rate limiting and allows access to more content

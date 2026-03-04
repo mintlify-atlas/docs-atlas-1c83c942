@@ -1,0 +1,355 @@
+---
+title: "Handlers"
+description: "Telegram message handlers for TT-Bot"
+---
+
+## Overview
+
+The handlers module contains all Telegram message routing and processing logic. Handlers respond to user commands, messages, callbacks, and inline queries, coordinating between the Telegram API and TT-Bot's core functionality.
+
+## Handler Routers
+
+TT-Bot uses aiogram's Router system to organize handlers by functionality:
+
+### `link_router` (link_dispatcher.py)
+
+Routes Instagram and TikTok links to appropriate handlers.
+
+**Key Components:**
+
+#### `IsInstagramLink` Filter
+
+Custom filter that detects Instagram URLs in messages.
+
+```python
+class IsInstagramLink(Filter):
+    async def __call__(self, message: Message) -> dict | bool:
+        if not message.text:
+            return False
+        match = INSTAGRAM_URL_REGEX.search(message.text)
+        if match:
+            return {"instagram_url": match.group(0)}
+        return False
+```
+
+#### `handle_instagram_message()`
+
+Processes Instagram links with queue management and error handling.
+
+**Location:** `handlers/link_dispatcher.py:32`
+
+```python
+@link_router.message(IsInstagramLink())
+async def handle_instagram_message(
+    message: Message, instagram_url: str
+) -> None:
+    # Checks queue limits
+    # Downloads and sends Instagram media
+    # Handles reactions and status messages
+```
+
+**Features:**
+- Per-user queue limits
+- Automatic user registration
+- Message reactions or status messages (fallback)
+- Group chat detection (limits image count to 10)
+
+### `user_router` (user.py)
+
+Handles user commands and settings.
+
+#### `/start` Command
+
+**Location:** `handlers/user.py:14`
+
+```python
+@user_router.message(CommandStart(), F.chat.type == 'private')
+async def send_start(message: Message) -> None:
+    # Registers new users or displays welcome message
+```
+
+#### `/mode` Command
+
+**Location:** `handlers/user.py:30`
+
+Toggles file mode (send as file vs. media).
+
+```python
+@user_router.message(Command('mode'))
+async def change_mode(message: Message):
+    # Toggles file_mode between True/False
+    # Requires admin permissions in groups
+```
+
+### `video_router` (get_video.py)
+
+Processes TikTok video downloads and unsupported content.
+
+#### `send_tiktok_video()`
+
+**Location:** `handlers/get_video.py:88`
+
+Main handler for TikTok link processing.
+
+```python
+@video_router.message(F.text)
+async def send_tiktok_video(message: Message):
+    # 1. Regex validation
+    # 2. Queue limit check
+    # 3. Set processing reaction/status
+    # 4. Acquire queue slot
+    # 5. Fetch video info (3-part retry strategy)
+    # 6. Send video or slideshow
+    # 7. Show ad if applicable
+    # 8. Log to database
+```
+
+**Flow:**
+1. Validates TikTok URL with regex
+2. Checks per-user queue limits
+3. Sends reaction (👀) or status message
+4. Acquires queue slot via `QueueManager`
+5. Fetches video info using TikTok API
+6. Determines if slideshow or video
+7. Sends appropriate media type
+8. Shows advertisement (private chats only)
+9. Records download to database
+
+**Retry Emojis:** `["👀", "🤔", "🙏"]` - shown during retry attempts
+
+#### Unsupported Content Handlers
+
+**Location:** `handlers/get_video.py:42-84`
+
+```python
+@video_router.message(F.video | F.video_note)
+async def handle_video_upload(message: Message):
+    # Informs users to send links, not video uploads
+
+@video_router.message(F.photo)
+async def handle_image_upload(message: Message):
+    # Informs users that only links are supported
+
+@video_router.message(F.voice | F.audio)
+async def handle_voice_upload(message: Message):
+    # Informs users that only links are supported
+
+@video_router.message()
+async def handle_unsupported_content(message: Message):
+    # Catch-all for any other content
+```
+
+#### Retry Button Callback
+
+**Location:** `handlers/get_video.py:322`
+
+```python
+@video_router.callback_query(F.data == RETRY_CALLBACK_PREFIX)
+async def handle_retry_callback(callback: CallbackQuery):
+    # Re-processes the original message when "Try Again" is clicked
+```
+
+### `music_router` (get_music.py)
+
+Extracts and sends TikTok audio/music.
+
+#### `send_tiktok_sound()`
+
+**Location:** `handlers/get_music.py:20`
+
+```python
+@music_router.callback_query(F.data.startswith("id"))
+async def send_tiktok_sound(callback_query: CallbackQuery):
+    # Triggered by music button callback
+    # Downloads and sends audio file
+```
+
+**Process:**
+1. Parses video ID from callback data (`id/{video_id}`)
+2. Removes music button from message
+3. Sets processing reaction
+4. Fetches music info using 2-part retry strategy
+5. Sends audio with metadata (title, artist, cover)
+6. Logs to database
+
+### `inline_router` (get_inline.py)
+
+Handles inline queries and chosen results.
+
+#### `handle_inline_query()`
+
+**Location:** `handlers/get_inline.py:38`
+
+```python
+@inline_router.inline_query()
+async def handle_inline_query(inline_query: InlineQuery):
+    # Returns inline results for TikTok/Instagram links
+```
+
+**Returns:**
+- TikTok download option (if TikTok link detected)
+- Instagram download option (if Instagram link detected)
+- "Wrong link" message (if invalid)
+- "Start bot" button (if user not registered)
+
+#### `handle_chosen_inline_result()`
+
+**Location:** `handlers/get_inline.py:102`
+
+```python
+@inline_router.chosen_inline_result()
+async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
+    # Routes to TikTok or Instagram handler based on result_id
+```
+
+**Features:**
+- Bypasses per-user queue limits for inline downloads
+- Uploads to storage channel (required for inline message edits)
+- Supports both videos and slideshows
+- Updates inline message with media
+
+### `lang_router` (lang.py)
+
+Manages language selection.
+
+#### `/lang` Command
+
+**Location:** `handlers/lang.py:26`
+
+```python
+@lang_router.message(Command("lang"))
+async def lang_change(message: Message):
+    # Displays language selection keyboard
+```
+
+#### Language Selection Callback
+
+**Location:** `handlers/lang.py:38`
+
+```python
+@lang_router.callback_query(F.data.startswith("lang"))
+async def inline_lang(callback_query: CallbackQuery):
+    # Updates user language in database
+```
+
+### `admin_router` (admin.py)
+
+Admin-only commands for bot management.
+
+#### `/msg` Command
+
+**Location:** `handlers/admin.py:15`
+
+```python
+@admin_router.message(
+    Command("msg", "tell", "say", "send"), 
+    F.chat.type == "private", 
+    IsSecondAdmin()
+)
+async def send_hi(message: Message):
+    # Sends message to specific user
+    # Usage: /msg <user_id> <message>
+```
+
+#### `/export` Command
+
+**Location:** `handlers/admin.py:32`
+
+```python
+@admin_router.message(Command("export"), F.chat.type == "private", IsSecondAdmin())
+async def export_users(message: Message):
+    # Exports user list as file
+```
+
+### `advert_router` (advert.py)
+
+Broadcast message system for announcements.
+
+**Location:** `handlers/advert.py`
+
+**Commands:**
+- `/admin` - Opens admin menu
+- `/hide` - Hides keyboard
+- `/stop`, `/cancel`, `/back` - Returns to main menu
+
+**Features:**
+- Message preview
+- Message editing
+- Bulk send to all users
+- Tracks delivery stats (sent, blocked, errors)
+- Rate limiting (0.04s delay between messages)
+
+## Routing Logic
+
+The dispatcher routes messages based on content type:
+
+```python
+# Link detection priority:
+1. Instagram URL → link_router (IsInstagramLink filter)
+2. TikTok URL → video_router (regex check in handler)
+3. Other content → Appropriate content type handler
+
+# Command routing:
+/start → user_router
+/mode → user_router
+/lang → lang_router
+/admin → advert_router
+/msg → admin_router
+/export → admin_router
+
+# Callback routing:
+id/{video_id} → music_router
+lang/{lang_code} → lang_router
+retry_video → video_router
+```
+
+## Queue Management Integration
+
+All download handlers integrate with `QueueManager` for concurrency control:
+
+```python
+from misc.queue_manager import QueueManager
+
+queue = QueueManager.get_instance()
+
+# Acquire slot with per-user limit
+async with queue.info_queue(user_id) as acquired:
+    if not acquired:
+        await message.reply("Queue full, please wait...")
+        return
+    # Process download
+
+# For inline downloads (bypass user limit)
+async with queue.info_queue(user_id, bypass_user_limit=True) as acquired:
+    # Process inline download
+```
+
+## Error Handling
+
+Handlers use centralized error handling:
+
+```python
+from media_types import get_error_message
+
+try:
+    video_info = await api.video(video_link)
+except TikTokError as e:
+    await message.reply(get_error_message(e, lang))
+```
+
+Error types mapped to localized messages:
+- `TikTokDeletedError` → "Video deleted"
+- `TikTokPrivateError` → "Private video"
+- `TikTokNetworkError` → "Network error"
+- `TikTokRateLimitError` → "Rate limit exceeded"
+- `InstagramError` → Instagram-specific messages
+
+## Best Practices
+
+1. **Always acquire queue slots** before API calls
+2. **Use reactions for UX feedback** (fallback to status messages)
+3. **Clean up resources** in `finally` blocks
+4. **Check group chat status** to limit behavior
+5. **Require admin permissions** for group settings changes
+6. **Log all downloads** to database for analytics
+7. **Close video_info resources** after slideshow processing

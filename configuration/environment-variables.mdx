@@ -1,0 +1,255 @@
+---
+title: Environment variables
+description: Complete reference for all configuration options
+---
+
+TT-Bot uses environment variables for all configuration. Create a `.env` file in the project root based on `.env.example`.
+
+## Bot Configuration
+
+Core bot settings for Telegram integration.
+
+<ParamField path="BOT_TOKEN" type="string" required>
+  Telegram bot token from [@BotFather](https://t.me/BotFather)
+  
+  Example: `12345:abcde`
+</ParamField>
+
+<ParamField path="STATS_BOT_TOKEN" type="string" required>
+  Token for the statistics bot
+  
+  Example: `12345:abcde`
+</ParamField>
+
+<ParamField path="TG_SERVER" type="string" default="https://api.telegram.org">
+  Telegram API server URL. Use custom Bot API server if self-hosting.
+  
+  Example: `http://telegram-bot-api:8081`
+</ParamField>
+
+<ParamField path="TELEGRAM_API_ID" type="integer" required>
+  Telegram API ID from [my.telegram.org](https://my.telegram.org)
+  
+  Example: `1234567`
+</ParamField>
+
+<ParamField path="TELEGRAM_API_HASH" type="string" required>
+  Telegram API hash from [my.telegram.org](https://my.telegram.org)
+  
+  Example: `abc123`
+</ParamField>
+
+<ParamField path="ADMIN_IDS" type="array" required>
+  JSON array of Telegram user IDs with admin privileges
+  
+  Example: `[1234567, 7654321]`
+</ParamField>
+
+<ParamField path="SECOND_IDS" type="array" default="[]">
+  JSON array of additional user IDs with secondary admin privileges
+  
+  Example: `[1234567]`
+</ParamField>
+
+<ParamField path="STORAGE_CHANNEL_ID" type="integer">
+  Channel ID for uploading videos to get `file_id`. Enables file caching.
+  
+  Example: `12345`
+</ParamField>
+
+## API Configuration
+
+External API settings for third-party integrations.
+
+<ParamField path="RAPIDAPI_KEY" type="string" required>
+  RapidAPI key for Instagram downloads. Get from [RapidAPI](https://rapidapi.com/)
+  
+  Example: `abcde12345fgh67890ijklmnopqrstu`
+</ParamField>
+
+<ParamField path="BOTSTAT" type="string">
+  API key for bot statistics service
+  
+  Example: `abcdefg12345`
+</ParamField>
+
+<ParamField path="MONETAG_URL" type="string">
+  Monetag monetization link URL
+  
+  Example: `https://example.com/your-monetag-link/`
+</ParamField>
+
+## Database Configuration
+
+PostgreSQL connection settings.
+
+<ParamField path="DB_URL" type="string" required>
+  PostgreSQL connection URL. Automatically converted to use `asyncpg` driver.
+  
+  Format: `postgresql://user:password@host:port/database`
+  
+  Example: `postgresql://postgres:postgres@db/ttbot-db`
+</ParamField>
+
+## Proxy Configuration
+
+Proxy rotation settings for bypassing rate limits and regional restrictions.
+
+<ParamField path="PROXY_FILE" type="string">
+  Path to file containing proxy URLs (one per line). See [Proxy Setup](/configuration/proxy-setup) for format.
+  
+  Example: `proxies.txt`
+</ParamField>
+
+<ParamField path="PROXY_DATA_ONLY" type="boolean" default="false">
+  When `true`, use proxies only for API requests, not media downloads. Improves download speed.
+  
+  Example: `false`
+</ParamField>
+
+<ParamField path="PROXY_INCLUDE_HOST" type="boolean" default="false">
+  When `true`, include direct host connection (no proxy) in round-robin rotation.
+  
+  Example: `false`
+</ParamField>
+
+## Retry Configuration
+
+Three-part retry strategy with proxy rotation. Each part has independent retry limits.
+
+<ParamField path="URL_RESOLVE_MAX_RETRIES" type="integer" default="3">
+  Maximum retries for Part 1: URL resolution (short URLs to full URLs)
+  
+  Example: `3`
+</ParamField>
+
+<ParamField path="VIDEO_INFO_MAX_RETRIES" type="integer" default="3">
+  Maximum retries for Part 2: Video info extraction (metadata and video data)
+  
+  Example: `3`
+</ParamField>
+
+<ParamField path="DOWNLOAD_MAX_RETRIES" type="integer" default="3">
+  Maximum retries for Part 3: Download (video/images/music download)
+  
+  Example: `3`
+</ParamField>
+
+## Performance Configuration
+
+Resource management and optimization settings.
+
+<ParamField path="MAX_USER_QUEUE_SIZE" type="integer" default="0">
+  Maximum concurrent videos per user in queue. `0` = no limit.
+  
+  Example: `0`
+</ParamField>
+
+<ParamField path="STREAMING_DURATION_THRESHOLD" type="integer" default="300">
+  Use streaming for videos longer than this (seconds). `0` = never stream.
+  
+  Example: `300`
+</ParamField>
+
+<ParamField path="MAX_VIDEO_DURATION" type="integer" default="0">
+  Maximum video duration in seconds. `0` = no limit.
+  
+  Example: `0`
+</ParamField>
+
+## Logging Configuration
+
+Application logging settings.
+
+<ParamField path="LOG_LEVEL" type="string" default="INFO">
+  Logging verbosity level.
+  
+  Options: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
+  
+  Example: `INFO`
+</ParamField>
+
+## Statistics Configuration
+
+Settings for the statistics bot.
+
+<ParamField path="STATS_IDS" type="array" required>
+  JSON array of user IDs who can access statistics
+  
+  Example: `[-1234567]`
+</ParamField>
+
+<ParamField path="STATS_CHAT" type="string" required>
+  Chat ID where statistics are posted
+  
+  Example: `-1234567`
+</ParamField>
+
+<ParamField path="STATS_MESSAGE_ID" type="string" required>
+  Message ID for hourly statistics updates
+  
+  Example: `23`
+</ParamField>
+
+<ParamField path="DAILY_STATS_MESSAGE_ID" type="string" required>
+  Message ID for daily statistics updates
+  
+  Example: `24`
+</ParamField>
+
+<ParamField path="JOIN_LOGS" type="string" required>
+  Chat ID for join/leave logs
+  
+  Example: `-1234567`
+</ParamField>
+
+## Optional Configuration
+
+Additional optional settings.
+
+<ParamField path="YTDLP_COOKIES" type="string">
+  Path to Netscape cookies file for yt-dlp. Used for authenticated requests.
+  
+  Example: `cookies.txt`
+</ParamField>
+
+## Environment File Example
+
+```bash .env
+# Telegram Bot API
+TG_SERVER=http://telegram-bot-api:8081
+TELEGRAM_API_ID=1234567
+TELEGRAM_API_HASH=abc123
+
+# Database
+DB_URL=postgresql://postgres:postgres@db/ttbot-db
+
+# Bot tokens
+BOT_TOKEN=12345:abcde
+STATS_BOT_TOKEN=12345:abcde
+
+# Access control
+ADMIN_IDS=[1234567]
+STATS_IDS=[-1234567]
+
+# Instagram API
+RAPIDAPI_KEY=abcde12345fgh67890ijklmnopqrstu
+
+# Proxy settings
+PROXY_FILE=proxies.txt
+PROXY_DATA_ONLY=false
+PROXY_INCLUDE_HOST=false
+
+# Retry configuration
+URL_RESOLVE_MAX_RETRIES=3
+VIDEO_INFO_MAX_RETRIES=3
+DOWNLOAD_MAX_RETRIES=3
+
+# Performance
+MAX_USER_QUEUE_SIZE=0
+STREAMING_DURATION_THRESHOLD=300
+MAX_VIDEO_DURATION=0
+
+# Logging
+LOG_LEVEL=INFO
+```

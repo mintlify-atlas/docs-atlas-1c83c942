@@ -1,0 +1,98 @@
+---
+title: "InstagramClient"
+description: "Instagram API client using RapidAPI"
+---
+
+## InstagramClient
+
+The `InstagramClient` class provides methods to fetch Instagram media content using the RapidAPI Instagram Downloader service.
+
+### Integration
+
+The client integrates with RapidAPI's Instagram Downloader service:
+- **RapidAPI Host**: `instagram-downloader-download-instagram-stories-videos4.p.rapidapi.com`
+- **Endpoint**: `/convert`
+- **Authentication**: API key via `X-Rapidapi-Key` header
+
+### Methods
+
+#### get_media
+
+Fetches media information from an Instagram URL.
+
+```python
+async def get_media(url: str) -> InstagramMediaInfo
+```
+
+<ParamField path="url" type="str" required>
+  The Instagram post URL (supports posts, reels, TV, and stories formats)
+</ParamField>
+
+<ResponseField name="InstagramMediaInfo" type="InstagramMediaInfo">
+  Contains the media items and metadata for the Instagram post
+  
+  <ResponseField name="media" type="list[InstagramMediaItem]">
+    List of media items in the post (single item for regular posts, multiple for carousels)
+  </ResponseField>
+  
+  <ResponseField name="link" type="str">
+    The original Instagram URL
+  </ResponseField>
+</ResponseField>
+
+#### Exceptions
+
+The method raises the following exceptions:
+
+- `InstagramNotFoundError` - Post not found, deleted, or private (HTTP 404)
+- `InstagramRateLimitError` - API rate limit exceeded (HTTP 429)
+- `InstagramNetworkError` - Network errors or unexpected API responses
+
+#### Example Usage
+
+```python
+from instagram_api.client import InstagramClient
+
+client = InstagramClient()
+
+try:
+    media_info = await client.get_media("https://www.instagram.com/p/ABC123/")
+    
+    if media_info.is_video:
+        print(f"Video URL: {media_info.video_url}")
+    elif media_info.is_carousel:
+        print(f"Carousel with {len(media_info.media)} items")
+    else:
+        print(f"Image URLs: {media_info.image_urls}")
+        
+except InstagramNotFoundError:
+    print("Post not found or is private")
+except InstagramRateLimitError:
+    print("Rate limit exceeded, try again later")
+except InstagramNetworkError as e:
+    print(f"Network error: {e}")
+```
+
+### Configuration
+
+The client requires a RapidAPI key to be configured:
+
+```yaml
+instagram:
+  rapidapi_key: "your-api-key-here"
+```
+
+The API key is read from the application configuration at `config["instagram"]["rapidapi_key"]`.
+
+### URL Format
+
+The client accepts Instagram URLs matching the pattern:
+```
+https?://(?:www\.)?instagram\.com/(?:p|reels?|reel|tv|stories)/[\w-]+
+```
+
+Supported URL types:
+- Posts: `/p/...`
+- Reels: `/reel/`, `/reels/`
+- TV: `/tv/...`
+- Stories: `/stories/...`

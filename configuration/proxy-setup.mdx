@@ -1,0 +1,228 @@
+---
+title: Proxy setup
+description: Configure proxy rotation for bypassing rate limits
+---
+
+TT-Bot includes a sophisticated proxy rotation system to bypass TikTok rate limits and regional restrictions. The `ProxyManager` class implements thread-safe round-robin load balancing across multiple proxies.
+
+## Overview
+
+The proxy system supports:
+
+- **Round-robin rotation**: Automatically cycles through proxies for each request
+- **Thread-safe operation**: Concurrent requests use different proxies
+- **Authentication encoding**: URL-encodes proxy credentials automatically
+- **Direct connection fallback**: Optionally include host IP in rotation
+- **Selective proxying**: Use proxies only for API requests, not downloads
+
+## Proxy File Format
+
+Create a text file (e.g., `proxies.txt`) with one proxy URL per line:
+
+```txt proxies.txt
+# HTTP/HTTPS proxies
+http://proxy1.example.com:8080
+https://proxy2.example.com:8443
+
+# SOCKS5 proxy
+socks5://proxy3.example.com:1080
+
+# Proxy with authentication
+http://username:password@proxy4.example.com:8080
+
+# Lines starting with # are comments
+# Empty lines are ignored
+```
+
+### Supported Formats
+
+- `http://host:port` - HTTP proxy
+- `https://host:port` - HTTPS proxy
+- `socks5://host:port` - SOCKS5 proxy
+- `http://user:pass@host:port` - Proxy with authentication
+
+### Authentication Encoding
+
+Proxy credentials are automatically URL-encoded. Special characters in usernames/passwords are handled correctly:
+
+```txt
+# Before encoding
+http://user@email.com:p@ssw0rd!@proxy.com:8080
+
+# After encoding (automatic)
+http://user%40email.com:p%40ssw0rd%21@proxy.com:8080
+```
+
+## Configuration Options
+
+### Basic Setup
+
+Set the proxy file path in your `.env`:
+
+```bash .env
+PROXY_FILE=proxies.txt
+```
+
+### Data-Only Proxying
+
+Use proxies only for TikTok API requests, not media downloads:
+
+```bash .env
+PROXY_FILE=proxies.txt
+PROXY_DATA_ONLY=true
+```
+
+This improves download speeds while still bypassing API rate limits.
+
+### Include Host Connection
+
+Add direct (no proxy) connection to rotation:
+
+```bash .env
+PROXY_FILE=proxies.txt
+PROXY_INCLUDE_HOST=true
+```
+
+With 3 proxies + host, rotation is: proxy1 → proxy2 → proxy3 → direct → proxy1...
+
+## Rotation Strategy
+
+The proxy manager uses **round-robin load balancing**:
+
+1. **First request**: Uses proxy1
+2. **Second request**: Uses proxy2
+3. **Third request**: Uses proxy3
+4. **Fourth request**: Back to proxy1
+
+### Retry Integration
+
+Proxies rotate on retry failures:
+
+```python
+# Part 1: URL resolution (3 retries)
+Attempt 1: proxy1 → fails
+Attempt 2: proxy2 → fails  
+Attempt 3: proxy3 → succeeds
+
+# Part 2: Video info (uses same proxy as Part 1)
+Attempt 1: proxy3 → succeeds
+
+# Part 3: Download (uses same proxy as Part 2)
+Attempt 1: proxy3 → succeeds
+```
+
+**Sticky sessions**: Once a proxy succeeds in Part 1, it's used for Parts 2 and 3 unless a retry triggers rotation.
+
+## Implementation Details
+
+The `ProxyManager` class (`tiktok_api/proxy_manager.py:14`) provides:
+
+### Thread Safety
+
+Uses locks to ensure concurrent requests get different proxies:
+
+```python
+with self._rotation_lock:
+    proxy = self._proxies[self._index]
+    self._index = (self._index + 1) % len(self._proxies)
+```
+
+### Singleton Pattern
+
+Initialized once at startup:
+
+```python
+from data.config import config
+from tiktok_api.proxy_manager import ProxyManager
+
+ProxyManager.initialize(
+    proxy_file=config["proxy"]["proxy_file"],
+    include_host=config["proxy"]["include_host"]
+)
+```
+
+### Methods
+
+- `get_next_proxy()` - Get next proxy in rotation
+- `get_proxy_count()` - Total proxies in rotation
+- `has_proxies()` - Check if proxies configured
+- `peek_current()` - View current proxy without rotating
+
+## Testing Proxies
+
+Verify proxies work before deployment:
+
+```bash
+# Test HTTP proxy
+curl -x http://proxy.example.com:8080 https://www.tiktok.com
+
+# Test SOCKS5 proxy
+curl --socks5 proxy.example.com:1080 https://www.tiktok.com
+
+# Test with authentication
+curl -x http://user:pass@proxy.example.com:8080 https://www.tiktok.com
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Proxy count">
+    Use 3-10 proxies for optimal performance. More proxies = better rate limit distribution.
+  </Accordion>
+
+  <Accordion title="Geographic diversity">
+    Use proxies from different regions to bypass regional restrictions.
+  </Accordion>
+
+  <Accordion title="Residential proxies">
+    Residential proxies work better than datacenter IPs for TikTok.
+  </Accordion>
+
+  <Accordion title="Monitor failures">
+    Check logs for proxy failures. Remove non-working proxies from the file.
+  </Accordion>
+
+  <Accordion title="Rotation speed">
+    With high request volume, even 3 proxies provide good distribution.
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+### Proxy Not Found Error
+
+```
+ERROR: Proxy file not found: proxies.txt
+```
+
+**Solution**: Ensure `PROXY_FILE` path is correct and file exists.
+
+### No Proxies Loaded
+
+```
+WARNING: No proxies loaded, will use direct connection
+```
+
+**Solution**: Check proxy file format. Ensure URLs are valid and not all commented out.
+
+### Authentication Failures
+
+```
+ERROR: Proxy authentication failed
+```
+
+**Solution**: Verify username/password. Special characters are auto-encoded.
+
+### Connection Timeouts
+
+**Solution**: Test proxy manually with `curl`. Remove slow/dead proxies from file.
+
+## Performance Impact
+
+| Configuration | API Speed | Download Speed | Rate Limits |
+|--------------|-----------|----------------|-------------|
+| No proxies | Fast | Fast | High risk |
+| Proxies (all) | Medium | Slow | Low risk |
+| Proxies (data only) | Medium | Fast | Low risk |
+
+**Recommendation**: Use `PROXY_DATA_ONLY=true` for best balance of speed and reliability.

@@ -1,0 +1,397 @@
+---
+title: "Proxy rotation"
+description: "Load-balanced proxy management"
+---
+
+TT-Bot uses a thread-safe round-robin proxy manager to distribute requests across multiple proxies, avoiding rate limits and IP blocks.
+
+## ProxyManager Class
+
+The `ProxyManager` class implements singleton pattern with thread-safe round-robin rotation:
+
+```python
+class ProxyManager:
+    """Thread-safe round-robin proxy manager.
+    
+    Loads proxies from a file and rotates through them for each request.
+    Optionally includes direct host connection (None) in rotation.
+    """
+    
+    _instance: Optional[ProxyManager] = None
+    _lock = threading.Lock()
+    
+    def __init__(self, proxy_file: str, include_host: bool = False):
+        self._proxies: list[str | None] = []
+        self._index = 0
+        self._rotation_lock = threading.Lock()
+        self._load_proxies(proxy_file, include_host)
+```
+
+**Location:** `tiktok_api/proxy_manager.py:13-176`
+
+## Initialization
+
+Proxy manager is initialized once at bot startup in `main.py`:
+
+```python
+from tiktok_api import ProxyManager
+
+# In main() function
+if config["proxy"]["proxy_file"]:
+    ProxyManager.initialize(
+        proxy_file=config["proxy"]["proxy_file"],
+        include_host=config["proxy"]["include_host"],
+    )
+    logging.info("Proxy manager initialized")
+```
+
+**Configuration:**
+
+```bash
+# Path to proxy file (one proxy per line)
+PROXY_FILE=proxies.txt
+
+# Include direct connection in rotation (true/false)
+INCLUDE_HOST=false
+```
+
+## Proxy File Format
+
+One proxy URL per line with support for comments:
+
+```text
+# Production proxies (US)
+http://user:pass@proxy1.example.com:8080
+http://user:pass@proxy2.example.com:8080
+
+# Backup proxies (EU)
+http://user:pass@proxy3.example.com:8080
+
+# SOCKS5 proxy
+socks5://user:pass@proxy4.example.com:1080
+
+# Empty lines and comments are ignored
+```
+
+**Supported formats:**
+- `http://host:port`
+- `http://user:pass@host:port`
+- `https://user:pass@host:port`
+- `socks5://user:pass@host:port`
+
+**Authentication encoding:**
+Usernames and passwords are automatically URL-encoded to handle special characters:
+
+```python
+def _encode_proxy_auth(self, proxy_url: str) -> str:
+    """URL-encode username and password in proxy URL."""
+    match = re.match(r"^(https?|socks5)://([^:@]+):([^@]+)@(.+)$", proxy_url)
+    if match:
+        protocol, username, password, host_port = match.groups()
+        encoded_username = quote(username, safe="")
+        encoded_password = quote(password, safe="")
+        return f"{protocol}://{encoded_username}:{encoded_password}@{host_port}"
+    return proxy_url
+```
+
+## Round-Robin Rotation
+
+Proxies are rotated using a thread-safe index:
+
+```python
+def get_next_proxy(self) -> str | None:
+    """Get next proxy in round-robin rotation.
+    
+    Returns:
+        Proxy URL string, or None for direct connection.
+    """
+    with self._rotation_lock:
+        if not self._proxies:
+            return None
+        proxy = self._proxies[self._index]
+        self._index = (self._index + 1) % len(self._proxies)
+        return proxy
+```
+
+### Rotation Example
+
+Given proxy file:
+```text
+http://proxy1:8080
+http://proxy2:8080
+http://proxy3:8080
+```
+
+With `INCLUDE_HOST=true`:
+
+```python
+manager = ProxyManager("proxies.txt", include_host=True)
+
+manager.get_next_proxy()  # Returns: "http://proxy1:8080"
+manager.get_next_proxy()  # Returns: "http://proxy2:8080"
+manager.get_next_proxy()  # Returns: "http://proxy3:8080"
+manager.get_next_proxy()  # Returns: None (direct connection)
+manager.get_next_proxy()  # Returns: "http://proxy1:8080" (wraps around)
+```
+
+## Integration with TikTokClient
+
+### Client Initialization
+
+```python
+from tiktok_api import TikTokClient, ProxyManager
+
+proxy_manager = ProxyManager.get_instance()
+client = TikTokClient(
+    proxy_manager=proxy_manager,
+    data_only_proxy=False,  # Use proxies for both API and media
+)
+```
+
+### ProxySession Pattern
+
+Each request creates a `ProxySession` that maintains sticky proxy state:
+
+```python
+async def video(self, video_link: str) -> VideoInfo:
+    # Create session with proxy manager
+    proxy_session = ProxySession(self.proxy_manager)
+    
+    # Part 1: URL Resolution (gets first proxy)
+    url = await self._resolve_url(video_link, proxy_session)
+    
+    # Part 2: Video Info (reuses same proxy unless Part 1 retried)
+    video_data, context = await self._extract_video_info_with_retry(
+        url, video_id, proxy_session
+    )
+    
+    # Part 3: Download (still same proxy unless previous parts retried)
+    video_bytes = await self._download_video_with_retry(
+        video_url, context, proxy_session
+    )
+```
+
+**Key insight:** `ProxySession` gets the next proxy from rotation only once (lazily on first use), then sticks with it across all 3 parts unless `rotate_proxy()` is called.
+
+## Proxy Rotation Flow
+
+```mermaid
+sequenceDiagram
+    participant Client1
+    participant Client2
+    participant PM as ProxyManager
+    participant Proxies
+
+    Note over PM: Initial state: index=0
+    Note over Proxies: [proxy1, proxy2, proxy3, None]
+
+    Client1->>PM: get_next_proxy()
+    PM->>PM: Lock, read index=0, increment to 1
+    PM-->>Client1: proxy1
+
+    Client2->>PM: get_next_proxy()
+    PM->>PM: Lock, read index=1, increment to 2
+    PM-->>Client2: proxy2
+
+    Client1->>PM: get_next_proxy() [retry]
+    PM->>PM: Lock, read index=2, increment to 3
+    PM-->>Client1: proxy3
+
+    Client2->>PM: get_next_proxy() [retry]
+    PM->>PM: Lock, read index=3, increment to 0
+    PM-->>Client2: None (direct)
+
+    Client1->>PM: get_next_proxy() [retry again]
+    PM->>PM: Lock, read index=0, increment to 1
+    PM-->>Client1: proxy1 (wrapped around)
+```
+
+## Data-Only Proxy Mode
+
+Optionally use proxies only for API requests, not media downloads:
+
+```python
+client = TikTokClient(
+    proxy_manager=proxy_manager,
+    data_only_proxy=True,  # Proxies for API, direct for media
+)
+```
+
+This is useful when:
+- Proxies have bandwidth limits
+- CDN doesn't block datacenter IPs
+- Media download is faster without proxy
+
+## Session Pooling by Proxy
+
+curl_cffi sessions are pooled by proxy URL to prevent proxy contamination:
+
+```python
+class TikTokClient:
+    # curl_cffi session pool (keyed by proxy URL)
+    _curl_session_pool: dict[Optional[str], CurlAsyncSession] = {}
+    
+    @classmethod
+    def _get_curl_session(cls, proxy: Optional[str] = None) -> CurlAsyncSession:
+        """Get or create curl_cffi AsyncSession for a specific proxy."""
+        with cls._curl_session_lock:
+            if proxy not in cls._curl_session_pool:
+                cls._curl_session_pool[proxy] = CurlAsyncSession(
+                    impersonate="chrome120",
+                    proxy=proxy,  # Baked into session
+                    max_clients=1000,
+                )
+            return cls._curl_session_pool[proxy]
+```
+
+**Why separate sessions?** curl_cffi bakes the proxy into the session at creation time, so we need separate sessions for different proxies.
+
+## Monitoring and Debugging
+
+### Proxy Count
+
+```python
+manager = ProxyManager.get_instance()
+count = manager.get_proxy_count()
+print(f"Total proxies in rotation: {count}")
+```
+
+### Current Proxy (Peek)
+
+```python
+# Peek without rotating (for logging)
+current = manager.peek_current()
+print(f"Next proxy will be: {current}")
+```
+
+### Check If Proxies Configured
+
+```python
+if manager.has_proxies():
+    print("Proxies are configured")
+else:
+    print("Using direct connection only")
+```
+
+### Safe Logging (Strip Auth)
+
+Proxy URLs are logged without credentials:
+
+```python
+def _strip_proxy_auth(proxy_url: Optional[str]) -> str:
+    """Strip authentication info from proxy URL for safe logging."""
+    if proxy_url is None:
+        return "direct connection"
+    
+    match = re.match(r"^(https?://)(?:[^@]+@)?(.+)$", proxy_url)
+    if match:
+        protocol, host_port = match.groups()
+        return f"{protocol}{host_port}"
+    return proxy_url
+
+# Usage
+logger.debug(f"Using proxy: {_strip_proxy_auth(proxy)}")
+# Output: "Using proxy: http://proxy1.example.com:8080"
+# Instead of: "Using proxy: http://user:pass@proxy1.example.com:8080"
+```
+
+## Singleton Pattern
+
+### Initialize Once
+
+```python
+# At startup (main.py)
+ProxyManager.initialize("proxies.txt", include_host=True)
+```
+
+### Get Instance Anywhere
+
+```python
+# In any module
+from tiktok_api import ProxyManager
+
+manager = ProxyManager.get_instance()
+if manager:
+    proxy = manager.get_next_proxy()
+```
+
+### Reset (Testing Only)
+
+```python
+# Reset singleton (mainly for tests)
+ProxyManager.reset()
+```
+
+## Error Handling
+
+### Missing Proxy File
+
+If proxy file doesn't exist:
+
+```python
+if not os.path.isfile(file_path):
+    logger.error(f"Proxy file not found: {file_path}")
+    if include_host:
+        self._proxies = [None]  # Fallback to direct connection
+    return
+```
+
+### Empty Proxy File
+
+If no valid proxies are loaded:
+
+```python
+if not self._proxies:
+    logger.warning("No proxies loaded, will use direct connection")
+    self._proxies = [None]
+```
+
+### Load Errors
+
+File read errors are caught and logged:
+
+```python
+try:
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            # Parse proxies
+except Exception as e:
+    logger.error(f"Failed to load proxy file {file_path}: {e}")
+```
+
+## Configuration Reference
+
+### Environment Variables
+
+```bash
+# Proxy file path (relative or absolute)
+PROXY_FILE=proxies.txt
+
+# Include direct connection in rotation
+INCLUDE_HOST=false
+```
+
+### Config Structure
+
+```python
+# data/config.py
+"proxy": {
+    "proxy_file": os.getenv("PROXY_FILE"),
+    "include_host": os.getenv("INCLUDE_HOST", "false").lower() == "true",
+}
+```
+
+## Best Practices
+
+1. **Use include_host=false for production** - Only use direct connection if proxies are for API only
+2. **Monitor proxy performance** - Remove proxies that consistently fail
+3. **Rotate credentials** - Change proxy passwords periodically
+4. **Use residential proxies** - Datacenter IPs often blocked by TikTok
+5. **Balance load** - Ensure enough proxies to distribute load
+6. **Test proxy file** - Validate format before deployment
+
+## Related Components
+
+- [3-Part Retry Strategy](/architecture/retry-strategy) - How proxies are used with retries
+- [Architecture Overview](/architecture/overview) - System-wide resource management
+- **Source:** `tiktok_api/proxy_manager.py` (full implementation)

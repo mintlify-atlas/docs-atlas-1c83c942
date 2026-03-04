@@ -1,0 +1,194 @@
+---
+title: "Docker deployment"
+description: "Deploy TT-Bot using Docker containers"
+---
+
+Deploy TT-Bot in a Docker container using the official image built with Python 3.13 and uv for fast dependency management.
+
+## Prerequisites
+
+- Docker installed on your system
+- Bot token from [@BotFather](https://t.me/botfather)
+- (Optional) Telegram API credentials from [my.telegram.org](https://my.telegram.org)
+
+## Quick Start
+
+<Steps>
+  <Step title="Build the Docker image">
+    Build the image using the included Dockerfile:
+    
+    ```bash
+    docker build -t tt-bot .
+    ```
+    
+    The image uses `ghcr.io/astral-sh/uv:python3.13-trixie-slim` as the base and leverages Docker layer caching for fast rebuilds.
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create a `.env` file based on `.env.example`:
+    
+    ```bash
+    cp .env.example .env
+    ```
+    
+    Set the required variables:
+    
+    **Required:**
+    - `BOT_TOKEN` - Your Telegram bot token
+    
+    **API Server Configuration:**
+    
+    Choose one of two options:
+    
+    <CodeGroup>
+    ```bash Public Telegram API
+    # Use Telegram's public API (simpler, but rate limited)
+    TG_SERVER=https://api.telegram.org
+    ```
+    
+    ```bash Local Bot API Server
+    # Use local Telegram Bot API server (faster, recommended with Docker Compose)
+    TG_SERVER=http://telegram-bot-api:8081
+    TELEGRAM_API_ID=your_api_id
+    TELEGRAM_API_HASH=your_api_hash
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Run the container">
+    Start the bot with your environment file:
+    
+    ```bash
+    docker run --rm --env-file .env tt-bot
+    ```
+  </Step>
+</Steps>
+
+<Note>
+When running a single container, ensure `TG_SERVER` is reachable from inside the container. If you set `TG_SERVER=http://telegram-bot-api:8081`, you must also run a `telegram-bot-api` container and place both on the same Docker network.
+</Note>
+
+## Single Container vs Docker Compose
+
+### Single Container
+
+**Pros:**
+- Simple setup for testing
+- Minimal resource usage
+- Quick to start and stop
+
+**Cons:**
+- Must use public Telegram API (rate limited)
+- No database persistence (unless configured separately)
+- Manual network configuration needed for local Bot API
+
+**Use when:** You want to quickly test the bot or deploy to a managed container service.
+
+### Docker Compose
+
+**Pros:**
+- Local Telegram Bot API server (faster, avoids rate limits)
+- PostgreSQL database included (persistent statistics)
+- All services networked automatically
+- Production-ready setup
+
+**Cons:**
+- Requires more system resources
+- More configuration options to understand
+
+**Use when:** You're deploying for production or want the full feature set with statistics.
+
+<Tip>
+For production deployments, use [Docker Compose](/deployment/docker-compose) to get the complete stack with local Bot API server and database.
+</Tip>
+
+## Dockerfile Details
+
+The Dockerfile uses a multi-stage approach for optimal caching:
+
+```dockerfile
+FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim
+
+WORKDIR /app
+
+# Copy dependencies first (cached layer)
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-install-project --extra main
+
+# Copy source and install project
+COPY . .
+RUN uv sync --locked --extra main
+
+ENV PATH="/app/.venv/bin:$PATH" \\
+    PYTHONUNBUFFERED=1
+
+CMD ["uv", "run", "main.py"]
+```
+
+**Key features:**
+- Uses `uv` for fast dependency resolution
+- Separates dependency and source layers for better caching
+- Installs `main` extra dependencies (includes yt-dlp, Pillow, curl_cffi)
+- Unbuffered Python output for real-time logs
+
+## Environment Variables
+
+| Variable | Required | Description | Default |
+|----------|----------|-------------|---------|
+| `BOT_TOKEN` | Yes | Telegram bot token from @BotFather | - |
+| `TG_SERVER` | No | Telegram API endpoint | `https://api.telegram.org` |
+| `TELEGRAM_API_ID` | Conditional* | API ID from my.telegram.org | - |
+| `TELEGRAM_API_HASH` | Conditional* | API hash from my.telegram.org | - |
+| `DB_URL` | No | PostgreSQL connection string | SQLite (file-based) |
+
+*Required only when using local Bot API server (`TG_SERVER=http://telegram-bot-api:8081`)
+
+## Troubleshooting
+
+### Container exits immediately
+
+Check the logs for error messages:
+```bash
+docker logs <container_id>
+```
+
+Common issues:
+- Invalid `BOT_TOKEN`
+- `TG_SERVER` pointing to unreachable host
+- Missing `TELEGRAM_API_ID`/`TELEGRAM_API_HASH` when using local Bot API
+
+### Cannot reach telegram-bot-api service
+
+<Warning>
+When using `TG_SERVER=http://telegram-bot-api:8081` in single container mode, you must create a Docker network and run both containers on it, or use Docker Compose instead.
+</Warning>
+
+Example with manual networking:
+```bash
+# Create network
+docker network create tt-bot-network
+
+# Run telegram-bot-api
+docker run -d \\
+  --name telegram-bot-api \\
+  --network tt-bot-network \\
+  --env-file .env \\
+  aiogram/telegram-bot-api:latest
+
+# Run tt-bot
+docker run --rm \\
+  --network tt-bot-network \\
+  --env-file .env \\
+  tt-bot
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Compose" icon="layer-group" href="/deployment/docker-compose">
+    Deploy the full stack with all services
+  </Card>
+  <Card title="Local Development" icon="code" href="/deployment/local-development">
+    Run the bot locally without Docker
+  </Card>
+</CardGroup>

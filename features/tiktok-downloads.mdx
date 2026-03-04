@@ -1,0 +1,250 @@
+---
+title: "TikTok downloads"
+description: "Download TikTok videos, slideshows, and audio without watermarks"
+---
+
+TT-Bot extracts TikTok content using yt-dlp with browser impersonation to bypass TikTok's anti-bot detection. The bot supports videos, slideshows (image posts), and audio extraction.
+
+## Supported content types
+
+The bot automatically detects and handles three types of TikTok content:
+
+### Videos
+
+Regular TikTok videos are downloaded without watermarks using a 3-part retry strategy:
+
+1. **URL resolution** - Resolves short URLs (vm.tiktok.com, vt.tiktok.com) to full URLs
+2. **Video info extraction** - Extracts metadata and direct CDN URLs using yt-dlp
+3. **Video download** - Downloads video from TikTok CDN with curl_cffi
+
+Each part retries independently with proxy rotation on failure.
+
+```python
+# From tiktok_api/client.py:173
+class TikTokClient:
+    """Client for extracting TikTok video and music information.
+
+    This client uses yt-dlp internally to extract video/slideshow data and music
+    from TikTok URLs. It supports both regular videos and slideshows (image posts).
+
+    All media downloads (video, audio, images) use curl_cffi with browser
+    impersonation (TLS fingerprint spoofing) derived from yt-dlp's BROWSER_TARGETS.
+    """
+```
+
+### Slideshows
+
+TikTok photo posts (slideshows) are extracted as individual images:
+
+- Downloads all images in parallel
+- Converts HEIC and non-native formats to PNG automatically
+- Sends images in batches of 10 (Telegram limit)
+- Group chats limited to 10 images maximum
+
+```python
+# From handlers/get_video.py:200
+if video_info.is_slideshow:  # Process images
+    # Send upload image action
+    await bot.send_chat_action(
+        chat_id=message.chat.id, action="upload_photo"
+    )
+    if group_chat:
+        image_limit = 10
+    else:
+        image_limit = None
+    was_processed = await send_image_result(
+        message, video_info, lang, file_mode, image_limit, client=api
+    )
+```
+
+### Music/Audio
+
+Extract audio tracks from TikTok videos:
+
+- Downloads audio in original quality
+- Includes metadata (title, author, duration)
+- Includes cover image thumbnail
+
+## Browser impersonation
+
+TT-Bot uses Chrome 120 fingerprint impersonation to bypass TikTok's WAF:
+
+```python
+# From tiktok_api/client.py:43
+# TikTok WAF blocks newer Chrome versions (136+) when used with proxies due to
+# TLS fingerprint / User-Agent mismatches. Use Chrome 120 which is known to work.
+TIKTOK_IMPERSONATE_TARGET = "chrome120"
+TIKTOK_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+```
+
+The User-Agent must match the TLS fingerprint to avoid detection. Newer Chrome versions (136+) are blocked by TikTok when used with proxies.
+
+## Usage examples
+
+### Send TikTok link in private chat
+
+Users simply send a TikTok URL to the bot:
+
+```
+https://www.tiktok.com/@user/video/1234567890
+```
+
+The bot:
+1. Shows processing reaction (👀)
+2. Extracts video info with retry
+3. Downloads video with retry
+4. Sends video back to user
+5. Clears reaction on completion
+
+### Send TikTok link in group chat
+
+Same as private chat, but with:
+- Image slideshows limited to 10 images
+- No ads shown
+- Reactions used for status updates
+
+### Mobile/short URLs
+
+The bot automatically resolves short URLs:
+
+```python
+# From tiktok_api/client.py:643
+async def _resolve_url(
+    self,
+    url: str,
+    proxy_session: ProxySession,
+    max_retries: Optional[int] = None,
+) -> str:
+    """Resolve short URLs to full URLs with retry and proxy rotation.
+
+    Handles:
+    - vm.tiktok.com short links
+    - vt.tiktok.com short links
+    - www.tiktok.com/t/ short links
+    """
+```
+
+Supported short URL formats:
+- `https://vm.tiktok.com/XXX`
+- `https://vt.tiktok.com/XXX`
+- `https://www.tiktok.com/t/XXX`
+
+## Error handling
+
+The bot handles various TikTok-specific errors:
+
+- **Deleted video** (status 10204) - Shows "Video was deleted" message
+- **Private video** (status 10222) - Shows "Video is private" message
+- **Under review** (status 10216) - Treated as deleted
+- **Rate limited** - Retries with proxy rotation
+- **Region blocked** - Shows geo-restriction message
+
+```python
+# From tiktok_api/client.py:847
+# Check TikTok status codes for errors
+# 10204 = Video not found / deleted
+# 10216 = Video under review
+# 10222 = Private video
+if status == 10204:
+    return None, "deleted", None
+elif status == 10222:
+    return None, "private", None
+elif status == 10216:
+    return None, "deleted", None  # Treat under review as deleted
+```
+
+## Performance optimizations
+
+### Streaming downloads
+
+Long videos (>5 minutes by default) use streaming download to reduce memory usage:
+
+```python
+# From tiktok_api/client.py:452
+perf_config = config.get("performance", {})
+streaming_threshold = perf_config.get("streaming_duration_threshold", 300)
+
+# Use streaming for long videos (> 5 minutes by default)
+use_streaming = duration is not None and duration > streaming_threshold
+```
+
+### Resource pooling
+
+- **ThreadPoolExecutor**: 500 workers for yt-dlp sync calls
+- **curl_cffi sessions**: 1000 connections per proxy
+- **aiohttp connector**: Unlimited connections with DNS caching
+
+### Parallel image downloads
+
+Slideshow images download in parallel with no concurrency limit:
+
+```python
+# From tiktok_api/client.py:1278
+# Download all images in parallel (no limit)
+download_tasks = [
+    self._download_image_with_retry(
+        url, download_context, proxy_session, max_retries
+    )
+    for url in image_urls
+]
+results = await asyncio.gather(*download_tasks, return_exceptions=True)
+```
+
+## Configuration
+
+### Retry settings
+
+Each part of the extraction flow has configurable retry counts:
+
+```yaml
+retry:
+  url_resolve_max_retries: 3  # Part 1: URL resolution
+  video_info_max_retries: 3   # Part 2: Video info extraction
+  download_max_retries: 3      # Part 3: Media download
+```
+
+### Proxy settings
+
+```yaml
+proxy:
+  enabled: true
+  file: "proxies.txt"          # Proxy list file
+  data_only: false             # If true, proxy only for API calls, not downloads
+```
+
+### Performance tuning
+
+```yaml
+performance:
+  streaming_duration_threshold: 300  # Stream videos longer than 5 minutes
+```
+
+## Implementation details
+
+### Resource cleanup
+
+Slideshow downloads use context managers to ensure yt-dlp resources are cleaned up:
+
+```python
+# From handlers/get_video.py:297
+finally:
+    # Clean up video_info resources (closes YDL context for slideshows)
+    video_info.close()
+```
+
+### Cookie support
+
+The client supports Netscape-format cookie files for authenticated requests:
+
+```python
+# From tiktok_api/client.py:329
+cookies_path = cookies or os.getenv("YTDLP_COOKIES")
+if cookies_path:
+    if os.path.isfile(cookies_path):
+        self.cookies = cookies_path
+```
+
+Set via environment variable:
+```bash
+export YTDLP_COOKIES=/path/to/cookies.txt
+```

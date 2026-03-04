@@ -1,0 +1,318 @@
+---
+title: Database configuration
+description: Set up PostgreSQL for TT-Bot
+---
+
+TT-Bot uses PostgreSQL with SQLAlchemy 2.0 and asyncpg for async database operations. The database stores user preferences, download history, and statistics.
+
+## Connection Setup
+
+### Connection String
+
+Set the database URL in your `.env` file:
+
+```bash .env
+DB_URL=postgresql://user:password@host:port/database
+```
+
+**Example**:
+```bash
+DB_URL=postgresql://postgres:postgres@localhost:5432/ttbot-db
+```
+
+### Async Driver
+
+TT-Bot automatically converts PostgreSQL URLs to use the `asyncpg` driver (`data/db_utils.py:7`):
+
+```python
+# Input URL
+postgresql://postgres:postgres@db/ttbot-db
+
+# Converted to
+postgresql+asyncpg://postgres:postgres@db/ttbot-db
+```
+
+This happens automatically - you don't need to specify `+asyncpg` in your `.env`.
+
+## Database Initialization
+
+The database must be initialized before any operations.
+
+### Startup Sequence
+
+1. **Initialize components** (`data/database.py:17`):
+
+```python
+from data.database import initialize_database_components
+from data.config import config
+
+initialize_database_components(config["bot"]["db_url"])
+```
+
+2. **Create tables**:
+
+```python
+from data.database import init_db
+
+await init_db()
+```
+
+### What Gets Created
+
+The initialization creates three tables:
+- `users` - User profiles and preferences
+- `videos` - Download history
+- `music` - Audio extraction history
+
+## Database Models
+
+TT-Bot uses three SQLAlchemy models defined in `data/models/`.
+
+### Users Table
+
+Stores user information and preferences (`data/models/users.py:6`):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `user_id` | BigInteger | Primary key, Telegram user ID |
+| `registered_at` | BigInteger | Unix timestamp of registration |
+| `lang` | String | Language code (default: `en`) |
+| `link` | String | User's referral link |
+| `file_mode` | Boolean | Whether user prefers file uploads (default: `false`) |
+| `ad_count` | Integer | Number of ads viewed (default: `0`) |
+| `ad_cooldown` | BigInteger | Unix timestamp when next ad can be shown |
+
+### Videos Table
+
+Tracks all video downloads (`data/models/video.py:6`):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `pk_id` | BigInteger | Primary key, auto-increment |
+| `user_id` | BigInteger | Foreign key to `users.user_id` |
+| `downloaded_at` | BigInteger | Unix timestamp of download |
+| `video_link` | String | TikTok/Instagram URL |
+| `is_images` | Boolean | Whether content is slideshow (default: `false`) |
+| `is_processed` | Boolean | Processing status (default: `false`) |
+| `is_inline` | Boolean | Downloaded via inline mode (default: `false`) |
+
+### Music Table
+
+Tracks audio extractions (`data/models/music.py:6`):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `pk_id` | BigInteger | Primary key, auto-increment |
+| `user_id` | BigInteger | Foreign key to `users.user_id` |
+| `downloaded_at` | BigInteger | Unix timestamp of extraction |
+| `video_id` | BigInteger | TikTok video ID |
+
+## Database Sessions
+
+TT-Bot provides two ways to get database sessions.
+
+### Dependency Injection (Recommended)
+
+Use with aiogram handlers:
+
+```python
+from data.database import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
+
+async def my_handler(session: AsyncSession = Depends(get_db)):
+    # Use session
+    result = await session.execute(...)
+```
+
+### Context Manager
+
+Use for standalone operations:
+
+```python
+from data.database import get_session
+
+async def my_function():
+    session = await get_session()
+    try:
+        result = await session.execute(...)
+        await session.commit()
+    finally:
+        await session.close()
+```
+
+## Docker Setup
+
+The included `docker-compose.yml` sets up PostgreSQL automatically:
+
+```yaml docker-compose.yml
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ttbot-db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
+```
+
+**Connection string**:
+```bash
+DB_URL=postgresql://postgres:postgres@db:5432/ttbot-db
+```
+
+## Manual Setup
+
+If not using Docker:
+
+### 1. Install PostgreSQL
+
+```bash
+# Ubuntu/Debian
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+
+# macOS
+brew install postgresql@17
+
+# Start service
+sudo systemctl start postgresql  # Linux
+brew services start postgresql@17  # macOS
+```
+
+### 2. Create Database
+
+```bash
+sudo -u postgres psql
+```
+
+```sql
+CREATE DATABASE "ttbot-db";
+CREATE USER ttbot WITH PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE "ttbot-db" TO ttbot;
+\q
+```
+
+### 3. Update Environment
+
+```bash .env
+DB_URL=postgresql://ttbot:your_password@localhost:5432/ttbot-db
+```
+
+### 4. Install Python Driver
+
+```bash
+uv add asyncpg
+```
+
+## Migrations
+
+TT-Bot currently uses automatic schema creation via `Base.metadata.create_all()`. For production:
+
+<Warning>
+  Consider using [Alembic](https://alembic.sqlalchemy.org/) for schema migrations to safely update the database without data loss.
+</Warning>
+
+## Repository Pattern
+
+Database operations are abstracted in `data/db_service.py`. Example operations:
+
+```python
+from data.db_service import (
+    get_user,
+    create_user,
+    update_user_language,
+    create_video_record
+)
+
+# Get or create user
+user = await get_user(session, user_id=123456)
+if not user:
+    user = await create_user(session, user_id=123456)
+
+# Update language
+await update_user_language(session, user_id=123456, lang="ru")
+
+# Track download
+await create_video_record(
+    session,
+    user_id=123456,
+    video_link="https://tiktok.com/@user/video/123",
+    is_images=False
+)
+```
+
+## Troubleshooting
+
+### Connection Refused
+
+```
+sqlalchemy.exc.OperationalError: connection refused
+```
+
+**Solutions**:
+- Verify PostgreSQL is running: `sudo systemctl status postgresql`
+- Check host/port in `DB_URL`
+- Ensure firewall allows port 5432
+
+### Authentication Failed
+
+```
+sqlalchemy.exc.OperationalError: password authentication failed
+```
+
+**Solutions**:
+- Verify username/password in `DB_URL`
+- Check PostgreSQL user exists: `psql -U postgres -c "\du"`
+
+### Database Not Found
+
+```
+sqlalchemy.exc.OperationalError: database "ttbot-db" does not exist
+```
+
+**Solution**:
+```bash
+sudo -u postgres createdb ttbot-db
+```
+
+### Engine Not Initialized
+
+```
+RuntimeError: Database engine not initialized
+```
+
+**Solution**: Call `initialize_database_components()` before any database operations.
+
+## Performance Tuning
+
+### Connection Pooling
+
+SQLAlchemy automatically pools connections. For high load, adjust pool size:
+
+```python
+engine = create_async_engine(
+    db_url,
+    pool_size=20,
+    max_overflow=0
+)
+```
+
+### Indexes
+
+The default schema includes indexes on:
+- `users.user_id` (primary key)
+- `videos.user_id` (foreign key)
+- `music.user_id` (foreign key)
+
+For large datasets, add indexes on frequently queried columns:
+
+```sql
+CREATE INDEX idx_videos_downloaded_at ON videos(downloaded_at);
+CREATE INDEX idx_videos_link ON videos(video_link);
+```

@@ -1,0 +1,409 @@
+---
+title: "Statistics"
+description: "Usage tracking and analytics"
+---
+
+TT-Bot includes a separate statistics bot that tracks usage metrics, generates graphs, and provides analytics.
+
+## Statistics bot
+
+The stats bot runs independently from the main bot:
+
+```python
+# From stats.py:18
+async def main() -> None:
+    await setup_db(config['bot']['db_url'])
+    scheduler.start()
+    dp.include_routers(
+        stats_router,
+    )
+    bot_info = await bot.get_me()
+    logging.info(f'{bot_info.full_name} [@{bot_info.username}, id:{bot_info.id}]')
+    await dp.start_polling(bot)
+```
+
+Run with:
+```bash
+uv run stats.py
+```
+
+## Tracked metrics
+
+The bot tracks:
+
+- **Chats** - Total users and groups
+- **Videos** - Total downloads and unique users
+- **Images** - Slideshow downloads and unique users  
+- **Music** - Audio extractions and unique users
+- **Timestamps** - Registration and download times
+
+### Database models
+
+```python
+# From stats/misc.py:9
+from data.models import Users, Video, Music
+```
+
+Three main tables:
+- `Users` - User registrations
+- `Video` - Video/image downloads
+- `Music` - Audio extractions
+
+## Auto-updating statistics
+
+The bot automatically updates statistics messages in a configured channel:
+
+```python
+# From stats.py:9
+if config["logs"]["stats_chat"] != "0":
+    # Split message mode - run both immediately
+    scheduler.add_job(update_overall_stats, misfire_grace_time=None)
+    scheduler.add_job(update_daily_stats, misfire_grace_time=None)
+    # Schedule separate updates
+    scheduler.add_job(update_overall_stats, "interval", hours=1, id='stats_overall', misfire_grace_time=None)
+    scheduler.add_job(update_daily_stats, "interval", minutes=5, id='stats_daily', misfire_grace_time=None)
+```
+
+Schedule:
+- **Overall stats**: Updated every hour
+- **Daily stats**: Updated every 5 minutes
+
+### Configuration
+
+```bash
+STATS_CHAT=-1001234567890
+STATS_MESSAGE_ID=123
+DAILY_STATS_MESSAGE_ID=456
+```
+
+The bot edits these message IDs with updated statistics.
+
+## Statistics formats
+
+### Overall statistics
+
+```python
+# From stats/misc.py:87
+async def get_overall_stats():
+    result = '<b>📊Overall Stats</b>\n'
+    result += await bot_stats(chat_type='users', stats_time=0)
+    result += '\n<b>Groups</b>\n'
+    result += await bot_stats(chat_type='groups', stats_time=0)
+    return result
+```
+
+Example output:
+```
+📊Overall Stats
+Chats: 1234
+Music: 567
+┗ Unique: 234
+Videos: 8901
+┗ Unique: 789
+┗ Images: 456
+    ┗ Unique: 123
+
+Groups
+Chats: 45
+Music: 12
+┗ Unique: 8
+Videos: 234
+┗ Unique: 34
+┗ Images: 89
+    ┗ Unique: 12
+```
+
+### Daily statistics
+
+```python
+# From stats/misc.py:95
+async def get_daily_stats():
+    result = '<b>📊Last 24 Hours</b>\n'
+    result += await bot_stats(chat_type='users', stats_time=86400)
+    result += '\n<b>Groups</b>\n'
+    result += await bot_stats(chat_type='groups', stats_time=86400)
+    return result
+```
+
+Shows activity in the last 24 hours with the same format.
+
+### Timestamps
+
+All statistics include formatted timestamps in multiple time zones:
+
+```python
+# From stats/misc.py:103
+def get_formatted_timestamp():
+    ts = datetime.fromtimestamp(tCurrent())
+    prague_time = ts.astimezone(ZoneInfo("Europe/Prague")).strftime("%H:%M:%S / %d %B %Y")
+    la_time = ts.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%I:%M:%S %p / %d %B %Y")
+    return f'\n\n<code>🇨🇿 {prague_time}\n🇺🇸 {la_time}</code>'
+```
+
+Example:
+```
+🇨🇿 14:32:15 / 04 March 2026
+🇺🇸 05:32:15 AM / 04 March 2026
+```
+
+## Query builder
+
+The stats system supports filtering by chat type and time period:
+
+```python
+# From stats/misc.py:14
+async def bot_stats(chat_type='all', stats_time=86400):
+    async with await get_session() as db:
+        if stats_time == 0:
+            period = 0
+        else:
+            period = tCurrent() - stats_time
+
+        # Build filter conditions
+        if chat_type == 'all':
+            user_filter = Users.user_id != 0
+            video_filter = Video.user_id != 0
+            music_filter = Music.user_id != 0
+        elif chat_type == 'groups':
+            user_filter = Users.user_id < 0
+            video_filter = Video.user_id < 0
+            music_filter = Music.user_id < 0
+        else:  # users
+            user_filter = Users.user_id > 0
+            video_filter = Video.user_id > 0
+            music_filter = Music.user_id > 0
+```
+
+Filters:
+- `chat_type='all'` - All chats
+- `chat_type='users'` - Private chats only (user_id > 0)
+- `chat_type='groups'` - Group chats only (user_id < 0)
+- `stats_time=0` - All time
+- `stats_time=86400` - Last 24 hours
+
+## Graph generation
+
+The bot generates time-series graphs using matplotlib:
+
+```python
+# From stats/graphs.py:17
+def create_time_series_plot(
+    days: List[datetime], 
+    amounts: List[int], 
+    title: str
+) -> bytes:
+    """Create an optimized time series plot using Matplotlib."""
+    
+    # Set up the figure and axis
+    plt.figure(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    if not days or not amounts:
+        # Display no data message
+        ax.text(0.5, 0.5, "No data available for this period", 
+                horizontalalignment='center', verticalalignment='center',
+                transform=ax.transAxes, fontsize=16)
+        ax.set_title(title, fontsize=18, pad=20)
+    else:
+        # Plot the main line
+        ax.plot(days, amounts, color='#1f77b4', linewidth=2, label='Count')
+```
+
+### Graph features
+
+- **Time series plots**: Line graphs showing trends over time
+- **Date formatting**: X-axis shows dates with automatic interval selection
+- **Grid**: Light gray grid for readability
+- **Empty state**: "No data available" message when no data exists
+- **High DPI**: 100 DPI for crisp rendering
+
+### Data processing
+
+Graphs use pandas for efficient data processing:
+
+```python
+# From stats/graphs.py:96
+def process_time_series_data(
+    timestamps: List[int],
+    depth: str,
+    period: int
+) -> Tuple[List[datetime], List[int]]:
+    """Process raw timestamps into grouped time series data."""
+    
+    if not timestamps:
+        return [], []
+    
+    # Convert to DataFrame for efficient processing
+    df = pd.DataFrame({"timestamp": timestamps})
+    df["datetime"] = pd.to_datetime(df["timestamp"], unit="s")
+    
+    # Group by specified time depth
+    df_grouped = df.groupby(df["datetime"].dt.strftime(depth)).size().reset_index()
+    df_grouped.columns = ["time_str", "count"]
+```
+
+Time depths:
+- `'%Y-%m-%d'` - Daily (frequency: 'D')
+- `'%Y-%m'` - Monthly (frequency: 'M')
+- `'%Y'` - Yearly (frequency: 'Y')
+- `'%Y-%m-%d %H'` - Hourly (frequency: 'H')
+
+### Async graph generation
+
+Graphs are generated in thread pool to avoid blocking:
+
+```python
+# From stats/graphs.py:143
+async def plot_user_graph(
+    graph_name: str,
+    depth: str,
+    period: int,
+    id_condition: str,
+    table_name: str
+) -> bytes:
+    """Main function to create user activity graphs."""
+    
+    try:
+        # Get raw data
+        timestamps = await get_time_series_data(table_name, period, id_condition)
+        
+        # Process data
+        days, amounts = process_time_series_data(timestamps, depth, period)
+        
+        # Create plot in thread pool for better performance
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, 
+            lambda: create_time_series_plot(days, amounts, graph_name)
+        )
+```
+
+## Botstat integration
+
+The bot integrates with Botstat.io for external analytics:
+
+```python
+# From stats/botstat.py:8
+class Botstat:
+    def __init__(self):
+        self.token = config['bot']['token']
+        self.botstat = config['api']['botstat']
+        self.request_url = f"https://api.botstat.io/create/{self.token}/{self.botstat}"
+        self.request_params = {
+            "notify_id": admin_ids[0],
+            "hide": "false",
+            "show_file_result": "true"
+        }
+```
+
+### Upload task
+
+```python
+# From stats/botstat.py:19
+async def start_task(self):
+    logging.info("Starting botstat task...")
+    request_file = await get_users_file()
+    
+    form_data = aiohttp.FormData()
+    form_data.add_field("file", request_file.data, filename=request_file.filename, content_type="text/plain")
+    
+    async with aiohttp.ClientSession() as client:
+        async with client.post(self.request_url,
+        params=self.request_params, data=form_data) as response:
+            code = response.status
+            if code != 200:
+                raise Exception(f'API error code:{code}')
+```
+
+Uploads user list to Botstat.io for centralized analytics.
+
+### Configuration
+
+```bash
+BOTSTAT_API_KEY=your_botstat_key
+```
+
+## Database queries
+
+All statistics use efficient SQLAlchemy queries:
+
+```python
+# From stats/misc.py:44
+# Get total chats
+stmt = select(func.count(Users.user_id)).where(user_filter)
+result = await db.execute(stmt)
+chats = result.scalar()
+
+# Get total videos
+stmt = select(func.count(Video.user_id)).where(video_filter)
+result = await db.execute(stmt)
+vid = result.scalar()
+
+# Get unique video downloaders
+stmt = select(func.count(func.distinct(Video.user_id))).where(video_filter)
+result = await db.execute(stmt)
+vid_u = result.scalar()
+```
+
+Queries use:
+- `func.count()` for totals
+- `func.distinct()` for unique users
+- Filters for time periods and chat types
+
+## Performance considerations
+
+### Query optimization
+
+- Uses indexed columns (user_id, timestamps)
+- Limits data retrieval to required time periods
+- Aggregates in database rather than application
+
+### Graph rendering
+
+- Runs in thread pool to avoid blocking event loop
+- Uses pandas for efficient data processing
+- Filters zero values for cleaner plots
+- Automatic date interval selection based on data range
+
+### Scheduling
+
+- Separate update intervals for overall (1h) and daily (5m) stats
+- Misfire grace time disabled for immediate catch-up
+- Independent scheduler from main bot
+
+## Running the stats bot
+
+### Development
+
+```bash
+uv run stats.py
+```
+
+### Production with Docker
+
+```yaml
+# docker-compose.yml
+services:
+  stats:
+    build: .
+    command: uv run stats.py
+    env_file: .env
+    depends_on:
+      - db
+```
+
+### Environment setup
+
+```bash
+# Required
+DB_URL=postgresql+asyncpg://user:pass@localhost/ttbot
+STATS_BOT_TOKEN=your_stats_bot_token
+
+# Optional (for auto-updates)
+STATS_CHAT=-1001234567890
+STATS_MESSAGE_ID=123
+DAILY_STATS_MESSAGE_ID=456
+
+# Optional (for Botstat.io)
+BOTSTAT_API_KEY=your_key
+```

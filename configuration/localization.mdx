@@ -1,0 +1,374 @@
+---
+title: Localization
+description: Multi-language support configuration
+---
+
+TT-Bot supports multiple languages through JSON translation files. Users can switch languages with the `/lang` command.
+
+## Supported Languages
+
+TT-Bot currently supports 8 languages:
+
+<CardGroup cols={2}>
+  <Card title="Arabic" icon="language">
+    **Code**: `ar`  
+    **File**: `data/locale/ar.json`
+  </Card>
+  
+  <Card title="English" icon="language">
+    **Code**: `en`  
+    **File**: `data/locale/en.json`  
+    **Default language**
+  </Card>
+  
+  <Card title="Hindi" icon="language">
+    **Code**: `hi`  
+    **File**: `data/locale/hi.json`
+  </Card>
+  
+  <Card title="Indonesian" icon="language">
+    **Code**: `id`  
+    **File**: `data/locale/id.json`
+  </Card>
+  
+  <Card title="Russian" icon="language">
+    **Code**: `ru`  
+    **File**: `data/locale/ru.json`
+  </Card>
+  
+  <Card title="Somali" icon="language">
+    **Code**: `so`  
+    **File**: `data/locale/so.json`
+  </Card>
+  
+  <Card title="Ukrainian" icon="language">
+    **Code**: `uk`  
+    **File**: `data/locale/uk.json`
+  </Card>
+  
+  <Card title="Vietnamese" icon="language">
+    **Code**: `vi`  
+    **File**: `data/locale/vi.json`
+  </Card>
+</CardGroup>
+
+## Locale File Structure
+
+Each language file (`data/locale/*.json`) contains translation key-value pairs:
+
+```json data/locale/en.json
+{
+  "lang_name": "English🇺🇸",
+  "start": "You have launched <b>No Watermark TikTok🤖</b>\n\nThis bot supports download of:\n📹Video, 🖼Images and 🔈Audio\nfrom TikTok and Instagram <i><b>without watermark</b></i>\n\nYou can also subscribe to our channel to get the latest news about bot status, updates and news!\n@ttgrab\n\n<b>Send video link to get started</b>",
+  "error": "<b>Oops! Something went wrong 😅</b>\nPlease try again in a moment.",
+  "downloading": "⏳ Downloading video…",
+  "processing": "🔄 Processing images...",
+  "get_sound": "Get Sound",
+  "bot_tag": "<a href='t.me/ttgrab_bot'>No Watermark TikTok</a>"
+}
+```
+
+### Required Keys
+
+Every locale file must include these keys:
+
+<AccordionGroup>
+  <Accordion title="Basic messages">
+    - `lang_name` - Language name with flag emoji
+    - `start` - Welcome message
+    - `send_link_prompt` - Prompt to send link
+    - `lang_start` - Language selection confirmation
+    - `lang` - Current language indicator
+  </Accordion>
+
+  <Accordion title="Error messages">
+    - `error` - Generic error
+    - `link_error` - Invalid link
+    - `error_deleted` - Video deleted
+    - `error_private` - Private video
+    - `error_region` - Region blocked
+    - `error_network` - Network error
+    - `error_rate_limit` - Rate limit hit
+    - `error_too_long` - Video too long
+    - `error_queue_full` - Queue full
+    - `error_instagram_not_found` - Instagram not found
+  </Accordion>
+
+  <Accordion title="Status messages">
+    - `downloading` - Download in progress
+    - `processing` - Processing images
+    - `maintenance` - Bot maintenance
+  </Accordion>
+
+  <Accordion title="Interactive elements">
+    - `get_sound` - Audio extraction button
+    - `get_last_10` - Last 10 images button
+    - `get_all` - All images button
+    - `try_again_button` - Retry button
+    - `ad_support_button` - Ad support button
+  </Accordion>
+
+  <Accordion title="Content formatting">
+    - `bot_tag` - Bot branding tag
+    - `result` - Video result format
+    - `result_song` - Audio result format
+  </Accordion>
+
+  <Accordion title="Inline mode">
+    - `inline_start_bot` - Enable inline mode
+    - `inline_wrong_link` - Invalid inline link
+    - `inline_download_video` - Download video button
+    - `inline_download_instagram` - Download Instagram button
+    - `only_video_supported` - Inline limitation message
+  </Accordion>
+
+  <Accordion title="Features">
+    - `file_mode_on` - File mode enabled
+    - `file_mode_off` - File mode disabled
+    - `video_upload_hint` - Upload not supported
+    - `non_tiktok_link` - Non-TikTok link error
+    - `tiktok_links_only` - TikTok-only message
+  </Accordion>
+
+  <Accordion title="Group chat">
+    - `not_admin` - Not admin warning
+    - `group_info` - Group chat info
+    - `group_warning` - Group limitations
+  </Accordion>
+</AccordionGroup>
+
+## Loading System
+
+Locale files are automatically loaded at startup (`data/config.py:206`):
+
+```python
+locale: dict[str, Any] = {}
+_locale_dir = Path(__file__).resolve().parent / "locale"
+
+# Auto-detect available languages
+locale["langs"] = sorted(
+    file.replace(".json", "")
+    for file in os.listdir(_locale_dir)
+    if file.endswith(".json")
+)
+
+# Load each language file
+for _lang in locale["langs"]:
+    with open(_locale_dir / f"{_lang}.json", "r", encoding="utf-8") as f:
+        locale[_lang] = json.loads(f.read())
+```
+
+**Result**: `locale` dict contains all translations:
+```python
+locale = {
+    "langs": ["ar", "en", "hi", "id", "ru", "so", "uk", "vi"],
+    "en": { ... },
+    "ru": { ... },
+    # ... other languages
+}
+```
+
+## Usage in Code
+
+Access translations using user's language preference:
+
+```python
+from data.config import locale
+
+# Get user's language from database
+user_lang = user.lang  # e.g., "ru"
+
+# Get translated message
+message = locale[user_lang]["downloading"]
+# Result: "⏳ Скачиваю видео…" (Russian)
+
+# Format with parameters
+message = locale[user_lang]["error_queue_full"].format(max_queue)
+# Result: "Подождите! У вас уже 5 видео в обработке."
+```
+
+### Fallback to English
+
+Always include fallback for missing translations:
+
+```python
+def get_message(key: str, lang: str = "en") -> str:
+    """Get translated message with English fallback."""
+    if lang in locale and key in locale[lang]:
+        return locale[lang][key]
+    return locale["en"].get(key, key)
+```
+
+## Adding a New Language
+
+Follow these steps to add a new language:
+
+### 1. Create Locale File
+
+Create `data/locale/XX.json` where `XX` is the language code:
+
+```bash
+cp data/locale/en.json data/locale/fr.json
+```
+
+### 2. Translate Content
+
+Edit the new file and translate all strings:
+
+```json data/locale/fr.json
+{
+  "lang_name": "Français🇫🇷",
+  "start": "Vous avez lancé <b>TikTok Sans Filigrane🤖</b>\n\nCe bot prend en charge le téléchargement de:\n📹Vidéos, 🖼Images et 🔈Audio\nde TikTok et Instagram <i><b>sans filigrane</b></i>\n\n<b>Envoyez un lien pour commencer</b>",
+  "error": "<b>Oups! Une erreur s'est produite 😅</b>\nVeuillez réessayer dans un instant.",
+  "downloading": "⏳ Téléchargement de la vidéo…",
+  "get_sound": "Obtenir l'audio"
+  // ... translate all other keys
+}
+```
+
+### 3. Restart Bot
+
+The new language is auto-detected on restart:
+
+```bash
+uv run main.py
+```
+
+**Check logs**:
+```
+INFO: Loaded languages: ['ar', 'en', 'fr', 'hi', 'id', 'ru', 'so', 'uk', 'vi']
+```
+
+### 4. Test Language Selection
+
+Users can now select the new language:
+
+1. Send `/lang` to bot
+2. Select "Français🇫🇷"
+3. Verify messages appear in French
+
+## HTML Formatting
+
+Locale strings support Telegram HTML formatting:
+
+```json
+{
+  "message": "<b>Bold</b> <i>Italic</i> <code>Code</code>",
+  "link": "<a href='https://example.com'>Link text</a>",
+  "combined": "<b>Bold with <i>nested italic</i></b>"
+}
+```
+
+**Supported tags**:
+- `<b>bold</b>` - Bold text
+- `<i>italic</i>` - Italic text
+- `<code>code</code>` - Monospace code
+- `<a href='url'>text</a>` - Hyperlink
+- `\n` - Line break
+
+## String Interpolation
+
+Use Python format strings for dynamic values:
+
+```json
+{
+  "result": "<a href='{1}'>Source</a>\n\n<b>{0}</b>",
+  "error_queue_full": "Please wait! You already have {0} videos processing."
+}
+```
+
+**Usage**:
+```python
+# Positional arguments
+message = locale[lang]["result"].format(bot_tag, video_url)
+
+# Named arguments (recommended)
+message = locale[lang]["error_queue_full"].format(queue_size)
+```
+
+## Testing Translations
+
+### 1. Check All Keys Present
+
+```python
+def validate_locale(lang_code: str) -> list[str]:
+    """Validate locale file has all required keys."""
+    en_keys = set(locale["en"].keys())
+    lang_keys = set(locale[lang_code].keys())
+    
+    missing = en_keys - lang_keys
+    return list(missing)
+
+# Check French translations
+missing = validate_locale("fr")
+if missing:
+    print(f"Missing keys: {missing}")
+```
+
+### 2. Test Format Strings
+
+```python
+def test_format_strings(lang_code: str):
+    """Test format string compatibility."""
+    try:
+        locale[lang_code]["error_queue_full"].format(5)
+        locale[lang_code]["result"].format("tag", "url")
+        print(f"{lang_code}: Format strings OK")
+    except (KeyError, IndexError) as e:
+        print(f"{lang_code}: Format error - {e}")
+```
+
+### 3. Validate JSON
+
+```bash
+# Check JSON syntax
+jq empty data/locale/fr.json
+
+# Pretty print
+jq . data/locale/fr.json
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Consistent tone">
+    Match the tone and style of the English version. If English is casual, keep translations casual.
+  </Accordion>
+
+  <Accordion title="Emoji usage">
+    Emojis are universal but check cultural appropriateness. Flags should match language region.
+  </Accordion>
+
+  <Accordion title="Format preservation">
+    Keep HTML tags, placeholders (`{0}`), and line breaks (`\n`) in the same positions.
+  </Accordion>
+
+  <Accordion title="Link text">
+    Translate link text but keep URLs unchanged: `<a href='t.me/ttgrab'>Translated text</a>`
+  </Accordion>
+
+  <Accordion title="Testing">
+    Test all messages in-app before deploying. Some strings are only visible in error states.
+  </Accordion>
+
+  <Accordion title="Character encoding">
+    Use UTF-8 encoding for all locale files. Test special characters display correctly.
+  </Accordion>
+</AccordionGroup>
+
+## User Language Preference
+
+User language is stored in the database:
+
+```python
+from data.db_service import update_user_language
+
+# Update user's language
+await update_user_language(session, user_id=123456, lang="ru")
+
+# User's language persists across sessions
+user = await get_user(session, user_id=123456)
+print(user.lang)  # Output: "ru"
+```
+
+**Default**: New users start with `en` (English).

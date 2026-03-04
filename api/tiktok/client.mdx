@@ -1,0 +1,385 @@
+---
+title: "TikTokClient"
+description: "TikTok API client for extracting video and music information"
+---
+
+## Overview
+
+The `TikTokClient` class provides a robust interface for extracting TikTok video and music data. It uses yt-dlp internally with browser impersonation (TLS fingerprint spoofing) to bypass TikTok's anti-bot detection.
+
+Key features:
+- Automatic proxy rotation for reliability
+- 3-part retry strategy (URL resolution → video info → download)
+- Support for videos and slideshows (image posts)
+- Chrome 120 browser impersonation to avoid WAF blocking
+- Cookie-based authentication support
+
+## TikTokClient
+
+### Constructor
+
+```python
+from tiktok_api import TikTokClient, ProxyManager
+
+# Basic usage
+client = TikTokClient()
+
+# With proxy rotation
+proxy_manager = ProxyManager.initialize("proxies.txt", include_host=True)
+client = TikTokClient(proxy_manager=proxy_manager)
+
+# With cookies for authenticated requests
+client = TikTokClient(cookies="cookies.txt")
+
+# Data-only proxy (extraction uses proxy, downloads use direct connection)
+client = TikTokClient(proxy_manager=proxy_manager, data_only_proxy=True)
+```
+
+<ParamField path="proxy_manager" type="ProxyManager | None" default="None">
+  Optional ProxyManager instance for round-robin proxy rotation. If provided, each request will use the next proxy in rotation.
+</ParamField>
+
+<ParamField path="data_only_proxy" type="bool" default="False">
+  If True, proxy is used only for API extraction, not for media downloads. Useful when you have a fast local connection but need proxies to bypass geo-restrictions on the API.
+</ParamField>
+
+<ParamField path="cookies" type="str | None" default="None">
+  Optional path to a Netscape-format cookies file (e.g., exported from browser). If not provided, uses the `YTDLP_COOKIES` environment variable. If the file doesn't exist, a warning is logged and cookies are not used.
+</ParamField>
+
+### Methods
+
+#### video()
+
+Extract video or slideshow information from a TikTok URL.
+
+```python
+video_info = await client.video("https://www.tiktok.com/@user/video/123456")
+
+if video_info.is_video:
+    print(f"Video duration: {video_info.duration}s")
+    print(f"Resolution: {video_info.width}x{video_info.height}")
+    # Video bytes are already downloaded
+    video_bytes = video_info.video_bytes
+else:
+    # Slideshow - images need to be downloaded separately
+    print(f"Slideshow with {len(video_info.image_urls)} images")
+    with video_info:  # Use context manager for proper cleanup
+        images = await client.download_slideshow_images(
+            video_info,
+            proxy_session
+        )
+```
+
+<ParamField path="video_link" type="str" required>
+  TikTok URL to extract. Supports:
+  - Full URLs: `https://www.tiktok.com/@user/video/123`
+  - Photo URLs: `https://www.tiktok.com/@user/photo/123`
+  - Short URLs: `https://vm.tiktok.com/XXX`, `https://vt.tiktok.com/XXX`
+</ParamField>
+
+<ParamField path="max_url_retries" type="int | None" default="None">
+  Maximum retry attempts for URL resolution. If None, uses config value (default: 3).
+</ParamField>
+
+<ParamField path="max_info_retries" type="int | None" default="None">
+  Maximum retry attempts for video info extraction. If None, uses config value (default: 3).
+</ParamField>
+
+<ParamField path="max_download_retries" type="int | None" default="None">
+  Maximum retry attempts for media download. If None, uses config value (default: 3).
+</ParamField>
+
+<ResponseField name="VideoInfo" type="VideoInfo">
+  Video or slideshow information object. See [VideoInfo model](/api/tiktok/models#videoinfo) for details.
+</ResponseField>
+
+**Raises:**
+- `TikTokInvalidLinkError` - Invalid or expired TikTok link
+- `TikTokDeletedError` - Video was deleted by the creator
+- `TikTokPrivateError` - Video is private
+- `TikTokRegionError` - Video is geo-blocked in your region
+- `TikTokExtractionError` - Failed to extract video data
+- `TikTokNetworkError` - Network error during download
+- `TikTokVideoTooLongError` - Video exceeds maximum duration (if configured)
+
+#### music()
+
+Extract music/audio from a TikTok video.
+
+```python
+music_info = await client.music("https://www.tiktok.com/@user/video/123456")
+
+print(f"Title: {music_info.title}")
+print(f"Artist: {music_info.author}")
+print(f"Duration: {music_info.duration}s")
+
+# Save audio file
+with open("audio.mp3", "wb") as f:
+    f.write(music_info.data)
+```
+
+<ParamField path="video_link" type="str" required>
+  TikTok URL from which to extract music. Same URL formats as `video()` method.
+</ParamField>
+
+<ParamField path="max_url_retries" type="int | None" default="None">
+  Maximum retry attempts for URL resolution.
+</ParamField>
+
+<ParamField path="max_info_retries" type="int | None" default="None">
+  Maximum retry attempts for video info extraction.
+</ParamField>
+
+<ParamField path="max_download_retries" type="int | None" default="None">
+  Maximum retry attempts for audio download.
+</ParamField>
+
+<ResponseField name="MusicInfo" type="MusicInfo">
+  Music information object with audio bytes. See [MusicInfo model](/api/tiktok/models#musicinfo) for details.
+</ResponseField>
+
+**Raises:** Same exceptions as `video()` method.
+
+#### download_slideshow_images()
+
+Download all images from a slideshow post with individual retry per image.
+
+```python
+proxy_session = ProxySession(proxy_manager)
+video_info = await client.video(slideshow_url)
+
+if video_info.is_slideshow:
+    with video_info:  # Ensure cleanup
+        images = await client.download_slideshow_images(
+            video_info,
+            proxy_session,
+            max_retries=3
+        )
+        for i, img_bytes in enumerate(images):
+            with open(f"image_{i}.jpg", "wb") as f:
+                f.write(img_bytes)
+```
+
+<ParamField path="video_info" type="VideoInfo" required>
+  VideoInfo object for a slideshow (type="images"). Must have a valid download context.
+</ParamField>
+
+<ParamField path="proxy_session" type="ProxySession" required>
+  ProxySession for proxy management and rotation on retry.
+</ParamField>
+
+<ParamField path="max_retries" type="int | None" default="None">
+  Maximum retry attempts per image. If None, uses config value (default: 3).
+</ParamField>
+
+<ResponseField name="images" type="list[bytes]">
+  List of image bytes in the same order as the URLs in video_info.image_urls.
+</ResponseField>
+
+**Raises:**
+- `ValueError` - If video_info is not a slideshow or has no download context
+- `TikTokNetworkError` - If any image fails to download after all retries
+
+### Class Methods
+
+#### close_curl_session()
+
+Close all curl_cffi sessions in the pool. Call this on application shutdown.
+
+```python
+await TikTokClient.close_curl_session()
+```
+
+#### close_connector()
+
+Close shared aiohttp connector. Call this on application shutdown.
+
+```python
+await TikTokClient.close_connector()
+```
+
+#### shutdown_executor()
+
+Shutdown the shared ThreadPoolExecutor. Call this on application shutdown.
+
+```python
+TikTokClient.shutdown_executor()
+```
+
+### Complete Example
+
+```python
+import asyncio
+from tiktok_api import TikTokClient, ProxyManager
+from tiktok_api.exceptions import TikTokError
+
+async def main():
+    # Initialize with proxy rotation
+    proxy_manager = ProxyManager.initialize("proxies.txt", include_host=True)
+    client = TikTokClient(
+        proxy_manager=proxy_manager,
+        data_only_proxy=True,
+        cookies="cookies.txt"
+    )
+    
+    try:
+        # Extract video
+        video_info = await client.video(
+            "https://www.tiktok.com/@user/video/123456"
+        )
+        
+        if video_info.is_video:
+            # Save video
+            with open("video.mp4", "wb") as f:
+                f.write(video_info.video_bytes)
+        else:
+            # Download slideshow images
+            proxy_session = ProxySession(proxy_manager)
+            with video_info:
+                images = await client.download_slideshow_images(
+                    video_info,
+                    proxy_session
+                )
+                for i, img in enumerate(images):
+                    with open(f"image_{i}.jpg", "wb") as f:
+                        f.write(img)
+        
+        # Extract music
+        music_info = await client.music(
+            "https://www.tiktok.com/@user/video/123456"
+        )
+        with open("audio.mp3", "wb") as f:
+            f.write(music_info.data)
+    
+    except TikTokError as e:
+        print(f"Error: {e}")
+    
+    finally:
+        # Cleanup on shutdown
+        await TikTokClient.close_curl_session()
+        await TikTokClient.close_connector()
+        TikTokClient.shutdown_executor()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## ProxySession
+
+Manages proxy state for a single video request flow, ensuring the same proxy is used across all parts unless a retry is triggered.
+
+### Constructor
+
+```python
+from tiktok_api import ProxySession, ProxyManager
+
+proxy_manager = ProxyManager.get_instance()
+session = ProxySession(proxy_manager)
+```
+
+<ParamField path="proxy_manager" type="ProxyManager | None" required>
+  ProxyManager instance for proxy rotation. Can be None for direct connections.
+</ParamField>
+
+### Methods
+
+#### get_proxy()
+
+Get the current proxy (lazily initialized on first call).
+
+```python
+proxy = session.get_proxy()
+# Returns: "http://host:port" or None for direct connection
+```
+
+<ResponseField name="proxy" type="str | None">
+  Proxy URL string, or None for direct connection.
+</ResponseField>
+
+#### rotate_proxy()
+
+Rotate to the next proxy in the rotation (for retries).
+
+```python
+new_proxy = session.rotate_proxy()
+# Returns: New proxy URL or None
+```
+
+<ResponseField name="proxy" type="str | None">
+  New proxy URL string, or None for direct connection.
+</ResponseField>
+
+### Example Usage
+
+```python
+proxy_manager = ProxyManager.initialize("proxies.txt")
+session = ProxySession(proxy_manager)
+
+# Part 1: URL resolution uses initial proxy
+url = await client._resolve_url(short_url, session)
+
+# Part 2: Video info extraction uses same proxy
+video_data, context = await client._extract_video_info_with_retry(
+    url, video_id, session
+)
+
+# Part 3: Download uses same proxy
+video_bytes = await client._download_video_with_retry(
+    video_url, context, session
+)
+
+# On retry, proxy is automatically rotated
+```
+
+## Architecture Notes
+
+### 3-Part Retry Strategy
+
+The client implements a 3-part retry strategy with independent proxy rotation:
+
+1. **URL Resolution** - Resolves short URLs (vm.tiktok.com) to full URLs
+2. **Video Info Extraction** - Extracts metadata and media URLs from TikTok
+3. **Media Download** - Downloads video/audio/images from TikTok CDN
+
+Each part retries independently with proxy rotation on failure, ensuring maximum reliability.
+
+### Chrome 120 Impersonation
+
+TikTok's WAF blocks newer Chrome versions (136+) when used with proxies due to TLS fingerprint mismatches. The client uses Chrome 120 impersonation which is known to work reliably:
+
+- TLS fingerprint: Chrome 120
+- User-Agent: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36`
+
+### Resource Management
+
+The client uses shared resources for optimal performance:
+
+- **ThreadPoolExecutor**: 500 workers for sync yt-dlp calls
+- **curl_cffi sessions**: 1000 connections per proxy (pooled by proxy URL)
+- **aiohttp connector**: Unlimited connections for URL resolution
+
+Always call cleanup methods on application shutdown:
+
+```python
+await TikTokClient.close_curl_session()
+await TikTokClient.close_connector()
+TikTokClient.shutdown_executor()
+```
+
+### VideoInfo Context Manager
+
+For slideshows, VideoInfo keeps the yt-dlp instance alive for image downloads. Always use a context manager or call `close()` explicitly:
+
+```python
+# Recommended: context manager
+with video_info:
+    images = await client.download_slideshow_images(video_info, session)
+
+# Alternative: explicit close
+video_info = await client.video(url)
+try:
+    images = await client.download_slideshow_images(video_info, session)
+finally:
+    video_info.close()
+```

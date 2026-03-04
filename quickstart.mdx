@@ -1,80 +1,443 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get TT-Bot up and running in minutes"
 ---
 
-## Get started in three steps
+<Note>
+TT-Bot is a production-grade Telegram bot for downloading TikTok and Instagram content without watermarks. It features proxy rotation, queue management, and multilingual support.
+</Note>
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, ensure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+- **Docker** and **Docker Compose** installed
+- A **Telegram Bot Token** from [@BotFather](https://t.me/botfather)
+- **Telegram API credentials** (API ID and API Hash) from [my.telegram.org](https://my.telegram.org)
+- A **RapidAPI key** for Instagram downloads (optional)
+
+## Quick Start with Docker Compose
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/yourusername/tt-bot.git
+    cd tt-bot
+    ```
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create a `.env` file from the example:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```bash
+    cp .env.example .env
+    ```
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    Edit `.env` and configure the required variables:
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    <CodeGroup>
+    ```bash Required Variables
+    # Telegram Bot Token from @BotFather
+    BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+    
+    # Telegram API credentials from my.telegram.org
+    TELEGRAM_API_ID=1234567
+    TELEGRAM_API_HASH=abcdef1234567890abcdef1234567890
+    
+    # Local Telegram Bot API server (recommended for Docker)
+    TG_SERVER=http://telegram-bot-api:8081
+    
+    # Database connection (uses Docker Compose PostgreSQL)
+    DB_URL=postgresql+asyncpg://postgres:postgres@db/ttbot-db
+    ```
+    
+    ```bash Optional - Admin & Logging
+    # Admin user IDs (JSON array format)
+    ADMIN_IDS=[123456789,987654321]
+    
+    # Storage channel for file caching
+    STORAGE_CHANNEL_ID=-1001234567890
+    
+    # Join logs channel
+    JOIN_LOGS=-1001234567890
+    ```
+    
+    ```bash Optional - Instagram
+    # RapidAPI key for Instagram downloads
+    RAPIDAPI_KEY=your_rapidapi_key_here
+    ```
+    
+    ```bash Optional - Performance
+    # Max concurrent videos per user (0 = unlimited)
+    MAX_USER_QUEUE_SIZE=5
+    
+    # Stream videos longer than this (seconds, 0 = never)
+    STREAMING_DURATION_THRESHOLD=300
+    
+    # Maximum video duration (seconds, 0 = no limit)
+    MAX_VIDEO_DURATION=1800
+    ```
+    
+    ```bash Optional - Proxy
+    # Path to proxy list file (one proxy per line)
+    PROXY_FILE=proxies.txt
+    
+    # Use proxy only for API requests, not downloads
+    PROXY_DATA_ONLY=false
+    
+    # Include host IP in proxy rotation
+    PROXY_INCLUDE_HOST=false
+    ```
+    
+    ```bash Optional - Retry Strategy
+    # 3-part retry strategy with proxy rotation
+    URL_RESOLVE_MAX_RETRIES=3
+    VIDEO_INFO_MAX_RETRIES=3
+    DOWNLOAD_MAX_RETRIES=3
+    ```
+    </CodeGroup>
+  </Step>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+  <Step title="Start the services">
+    Launch all services (bot, database, and local Telegram API server):
+    
+    ```bash
+    docker compose up -d
+    ```
+    
+    <Tip>
+    The Docker Compose stack includes:
+    - `tt-bot` - The main Telegram bot
+    - `stats-bot` - Statistics tracking bot
+    - `telegram-bot-api` - Local Telegram Bot API server (faster, no rate limits)
+    - `db` - PostgreSQL database
+    </Tip>
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Verify the bot is running">
+    Check the logs to ensure everything started correctly:
+    
+    ```bash
+    docker compose logs -f tt-bot
+    ```
+    
+    You should see output like:
+    ```
+    INFO:root:No Watermark TikTok [@ttgrab_bot, id:1234567890]
+    INFO:root:Proxy manager initialized
+    ```
+  </Step>
 
-### Step 3: Go live
+  <Step title="Test your bot">
+    Open Telegram and send `/start` to your bot. You should receive a welcome message:
+    
+    > You have launched **No Watermark TikTok🤖**
+    >
+    > This bot supports download of:
+    > 📹Video, 🖼Images and 🔈Audio
+    > from TikTok and Instagram *without watermark*
+    >
+    > **Send video link to get started**
+  </Step>
+</Steps>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+## Using the Bot
 
-## Next steps
-
-Now that you have your docs running, explore these key features:
+### Basic Commands
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="/start" icon="play">
+    Initialize the bot and see welcome message
+  </Card>
+  <Card title="/lang" icon="language">
+    Change bot language (supports English, Russian, Arabic, Hindi, and more)
+  </Card>
+  <Card title="/mode" icon="file">
+    Toggle between video and file mode for downloads
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+### Downloading Content
+
+<Steps>
+  <Step title="Send a TikTok or Instagram link">
+    Simply paste any TikTok or Instagram video URL:
+    
+    ```
+    https://www.tiktok.com/@username/video/1234567890
+    https://vm.tiktok.com/ABC123
+    https://www.instagram.com/reel/ABC123DEF456/
+    ```
+  </Step>
+
+  <Step title="Wait for processing">
+    The bot will react with 👀 while processing your request.
+  </Step>
+
+  <Step title="Receive your content">
+    Downloads are sent without watermarks:
+    - **Videos** - HD quality, no watermark
+    - **Images** - Original quality slideshow
+    - **Audio** - Original audio track
+  </Step>
+</Steps>
+
+<Tip>
+**File Mode**: Use `/mode` to toggle between sending videos as native Telegram videos or as files. File mode is useful for larger videos or when you want to preserve maximum quality.
+</Tip>
+
+### Supported Content Types
+
+| Platform | Videos | Images/Slideshows | Audio |
+|----------|--------|-------------------|-------|
+| TikTok | ✅ | ✅ | ✅ |
+| Instagram | ✅ | ✅ | ❌ |
+
+## Alternative Deployment Options
+
+### Docker (Single Container)
+
+Run only the bot without the full stack:
+
+<Steps>
+  <Step title="Build the image">
+    ```bash
+    docker build -t tt-bot .
+    ```
+  </Step>
+
+  <Step title="Update .env for standalone mode">
+    When not using Docker Compose, update your `.env`:
+    
+    ```bash
+    # Use public Telegram API instead of local server
+    TG_SERVER=https://api.telegram.org
+    
+    # Remove database if not needed (optional features only)
+    # DB_URL=
+    ```
+  </Step>
+
+  <Step title="Run the container">
+    ```bash
+    docker run --rm --env-file .env tt-bot
+    ```
+  </Step>
+</Steps>
+
+### Local Development with uv
+
+For development without Docker:
+
+<Steps>
+  <Step title="Install uv">
+    ```bash
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    ```
+    
+    Ensure `~/.local/bin` is on your PATH.
+  </Step>
+
+  <Step title="Install dependencies">
+    ```bash
+    uv sync
+    ```
+  </Step>
+
+  <Step title="Configure for local run">
+    Update `.env` for local development:
+    
+    ```bash
+    # Use public API if not running local server
+    TG_SERVER=https://api.telegram.org
+    
+    # Point to local database if needed
+    DB_URL=postgresql+asyncpg://postgres:postgres@localhost/ttbot-db
+    ```
+  </Step>
+
+  <Step title="Run the bot">
+    ```bash
+    uv run python main.py
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Bot doesn't respond to messages">
+    **Check bot token validity:**
+    ```bash
+    # Verify your bot token is correct
+    curl https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getMe
+    ```
+    
+    **Verify the bot is running:**
+    ```bash
+    docker compose logs tt-bot
+    ```
+    
+    **Common issues:**
+    - Incorrect `BOT_TOKEN` in `.env`
+    - Bot not started in Telegram (send `/start` first)
+    - Firewall blocking outbound connections
+  </Accordion>
+
+  <Accordion title="TikTok downloads fail with network errors">
+    TikTok uses aggressive anti-bot measures. Solutions:
+    
+    **1. Use proxies:**
+    
+    Create `proxies.txt` with one proxy per line:
+    ```
+    http://proxy1.example.com:8080
+    socks5://proxy2.example.com:1080
+    ```
+    
+    Update `.env`:
+    ```bash
+    PROXY_FILE=proxies.txt
+    PROXY_INCLUDE_HOST=false
+    ```
+    
+    **2. Add cookies:**
+    
+    Export TikTok cookies using a browser extension and save to `cookies.txt`, then:
+    ```bash
+    YTDLP_COOKIES=cookies.txt
+    ```
+    
+    **3. Adjust retry settings:**
+    ```bash
+    URL_RESOLVE_MAX_RETRIES=5
+    VIDEO_INFO_MAX_RETRIES=5
+    DOWNLOAD_MAX_RETRIES=5
+    ```
+  </Accordion>
+
+  <Accordion title="Database connection errors">
+    **With Docker Compose:**
+    
+    Ensure the database service is running:
+    ```bash
+    docker compose ps db
+    ```
+    
+    The `DB_URL` should match Docker Compose service names:
+    ```bash
+    DB_URL=postgresql+asyncpg://postgres:postgres@db/ttbot-db
+    ```
+    
+    **With external database:**
+    
+    Update connection string with your database credentials:
+    ```bash
+    DB_URL=postgresql+asyncpg://user:password@host:5432/database
+    ```
+  </Accordion>
+
+  <Accordion title="Instagram downloads not working">
+    Instagram downloads require a RapidAPI key:
+    
+    1. Sign up at [RapidAPI](https://rapidapi.com/)
+    2. Subscribe to an Instagram API (search for "Instagram" in the API marketplace)
+    3. Copy your API key and add to `.env`:
+    ```bash
+    RAPIDAPI_KEY=your_rapidapi_key_here
+    ```
+    
+    <Warning>
+    Without a valid `RAPIDAPI_KEY`, Instagram downloads will fail. TikTok downloads work without any API keys.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Queue full errors">
+    Users see "Please wait! You already have X videos processing" when:
+    
+    - `MAX_USER_QUEUE_SIZE` limit is reached (default: 0 = unlimited)
+    - Multiple large downloads are processing simultaneously
+    
+    **Solutions:**
+    
+    Increase the queue limit:
+    ```bash
+    MAX_USER_QUEUE_SIZE=10  # Allow 10 concurrent downloads per user
+    ```
+    
+    Or remove the limit entirely:
+    ```bash
+    MAX_USER_QUEUE_SIZE=0  # Unlimited
+    ```
+  </Accordion>
+
+  <Accordion title="Out of memory errors">
+    For large videos or high traffic:
+    
+    **1. Enable streaming mode:**
+    ```bash
+    # Stream videos longer than 5 minutes (300 seconds)
+    STREAMING_DURATION_THRESHOLD=300
+    ```
+    
+    **2. Set maximum duration:**
+    ```bash
+    # Reject videos longer than 30 minutes
+    MAX_VIDEO_DURATION=1800
+    ```
+    
+    **3. Increase Docker memory limits:**
+    
+    Edit `docker-compose.yml`:
+    ```yaml
+    services:
+      tt-bot:
+        deploy:
+          resources:
+            limits:
+              memory: 2G
+    ```
+  </Accordion>
+
+  <Accordion title="Local Telegram Bot API server issues">
+    The local API server (`telegram-bot-api` service) provides:
+    - Faster uploads/downloads
+    - No rate limits
+    - Support for larger files (up to 2GB)
+    
+    **If it's not working:**
+    
+    1. Check it's running:
+    ```bash
+    docker compose logs telegram-bot-api
+    ```
+    
+    2. Verify `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` are correct
+    
+    3. Fall back to public API:
+    ```bash
+    TG_SERVER=https://api.telegram.org
+    ```
+    
+    <Note>
+    When using public API, you don't need `TELEGRAM_API_ID` or `TELEGRAM_API_HASH`, but you'll have stricter rate limits.
+    </Note>
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/configuration/environment-variables">
+    Learn about all configuration options and environment variables
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture/overview">
+    Understand the bot's internal architecture and design patterns
+  </Card>
+  <Card title="Development" icon="code" href="/deployment/local-development">
+    Set up your development environment and contribute
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/deployment/docker-compose">
+    Production deployment guides and best practices
+  </Card>
+</CardGroup>

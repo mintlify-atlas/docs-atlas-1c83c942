@@ -1,0 +1,327 @@
+---
+title: "TikTok Models"
+description: "Data models for TikTok content"
+---
+
+## Overview
+
+The TikTok API module provides two main data models for representing extracted content:
+
+- **VideoInfo** - Represents a TikTok video or slideshow (image post)
+- **MusicInfo** - Represents extracted audio/music from a TikTok video
+
+Both models are dataclasses that encapsulate all metadata and media data returned by the TikTok API.
+
+## VideoInfo
+
+Information about a TikTok video or slideshow post.
+
+### Fields
+
+<ParamField path="type" type="str" required>
+  Content type. Either `"video"` for regular videos or `"images"` for slideshows (image posts).
+</ParamField>
+
+<ParamField path="data" type="bytes | list[str]" required>
+  Media data:
+  - For videos: Video file as bytes (already downloaded)
+  - For slideshows: List of image URLs (strings) that need to be downloaded separately
+</ParamField>
+
+<ParamField path="id" type="int" required>
+  Unique TikTok video/post ID.
+</ParamField>
+
+<ParamField path="cover" type="str | None" required>
+  Thumbnail/cover image URL. May be None if not available.
+</ParamField>
+
+<ParamField path="width" type="int | None" required>
+  Video width in pixels. None for slideshows.
+</ParamField>
+
+<ParamField path="height" type="int | None" required>
+  Video height in pixels. None for slideshows.
+</ParamField>
+
+<ParamField path="duration" type="int | None" required>
+  Video duration in seconds. None for slideshows.
+</ParamField>
+
+<ParamField path="link" type="str" required>
+  Original TikTok link (the URL that was used to extract this content).
+</ParamField>
+
+<ParamField path="url" type="str | None" default="None">
+  Direct video URL from TikTok CDN. Only present for videos, None for slideshows.
+</ParamField>
+
+### Properties
+
+#### is_video
+
+Check if this is a video (not a slideshow).
+
+```python
+if video_info.is_video:
+    print("This is a video")
+```
+
+**Returns:** `bool` - True if type is "video", False otherwise
+
+#### is_slideshow
+
+Check if this is a slideshow (image post).
+
+```python
+if video_info.is_slideshow:
+    print(f"This slideshow has {len(video_info.image_urls)} images")
+```
+
+**Returns:** `bool` - True if type is "images", False otherwise
+
+#### image_urls
+
+Get list of image URLs (only for slideshows).
+
+```python
+if video_info.is_slideshow:
+    for url in video_info.image_urls:
+        print(f"Image URL: {url}")
+```
+
+**Returns:** `list[str]` - List of image URLs if this is a slideshow, empty list otherwise
+
+#### video_bytes
+
+Get video bytes (only for videos).
+
+```python
+if video_info.is_video:
+    video_data = video_info.video_bytes
+    with open("video.mp4", "wb") as f:
+        f.write(video_data)
+```
+
+**Returns:** `bytes | None` - Video bytes if this is a video, None otherwise
+
+### Methods
+
+#### close()
+
+Close the download context and release resources.
+
+```python
+video_info = await client.video(url)
+try:
+    # Use video_info
+    pass
+finally:
+    video_info.close()
+```
+
+This method is idempotent - calling `close()` multiple times is safe.
+
+**Important:** For slideshows, you MUST call `close()` or use a context manager to release the yt-dlp resources. The download context is kept alive for image downloads.
+
+### Context Manager
+
+VideoInfo implements the context manager protocol for automatic resource cleanup.
+
+```python
+# Recommended approach for slideshows
+with video_info:
+    if video_info.is_slideshow:
+        images = await client.download_slideshow_images(
+            video_info,
+            proxy_session
+        )
+# Resources are automatically cleaned up when exiting the 'with' block
+```
+
+### Examples
+
+#### Working with Videos
+
+```python
+from tiktok_api import TikTokClient
+
+client = TikTokClient()
+video_info = await client.video("https://www.tiktok.com/@user/video/123")
+
+if video_info.is_video:
+    print(f"Video ID: {video_info.id}")
+    print(f"Resolution: {video_info.width}x{video_info.height}")
+    print(f"Duration: {video_info.duration}s")
+    print(f"Cover: {video_info.cover}")
+    print(f"Direct URL: {video_info.url}")
+    
+    # Save video
+    with open(f"video_{video_info.id}.mp4", "wb") as f:
+        f.write(video_info.video_bytes)
+```
+
+#### Working with Slideshows
+
+```python
+from tiktok_api import TikTokClient, ProxySession
+
+client = TikTokClient(proxy_manager=proxy_manager)
+video_info = await client.video("https://www.tiktok.com/@user/photo/456")
+
+if video_info.is_slideshow:
+    print(f"Post ID: {video_info.id}")
+    print(f"Number of images: {len(video_info.image_urls)}")
+    print(f"Cover: {video_info.cover}")
+    
+    # Download all images using context manager
+    proxy_session = ProxySession(proxy_manager)
+    with video_info:  # Automatically closes download context
+        images = await client.download_slideshow_images(
+            video_info,
+            proxy_session
+        )
+        
+        for i, img_bytes in enumerate(images):
+            with open(f"image_{video_info.id}_{i}.jpg", "wb") as f:
+                f.write(img_bytes)
+```
+
+#### Handling Both Types
+
+```python
+video_info = await client.video(tiktok_url)
+
+with video_info:  # Always use context manager for safety
+    if video_info.is_video:
+        # Handle video
+        video_data = video_info.video_bytes
+        print(f"Video size: {len(video_data)} bytes")
+    elif video_info.is_slideshow:
+        # Handle slideshow
+        proxy_session = ProxySession(proxy_manager)
+        images = await client.download_slideshow_images(
+            video_info,
+            proxy_session
+        )
+        print(f"Downloaded {len(images)} images")
+```
+
+## MusicInfo
+
+Information about TikTok music/audio extracted from a video.
+
+### Fields
+
+<ParamField path="data" type="bytes" required>
+  Audio file bytes (MP3 format). This is the actual audio data, already downloaded and ready to save.
+</ParamField>
+
+<ParamField path="id" type="int" required>
+  Video ID from which the music was extracted. This is the TikTok video ID, not a music ID.
+</ParamField>
+
+<ParamField path="title" type="str" required>
+  Music/sound title. This is the name of the song or sound effect used in the video.
+</ParamField>
+
+<ParamField path="author" type="str" required>
+  Music author/artist name. The creator or performer of the music.
+</ParamField>
+
+<ParamField path="duration" type="int" required>
+  Audio duration in seconds.
+</ParamField>
+
+<ParamField path="cover" type="str" required>
+  Cover image URL for the music. This is typically the album art or sound thumbnail.
+</ParamField>
+
+### Example
+
+```python
+from tiktok_api import TikTokClient
+
+client = TikTokClient()
+music_info = await client.music("https://www.tiktok.com/@user/video/123")
+
+print(f"Music ID (Video ID): {music_info.id}")
+print(f"Title: {music_info.title}")
+print(f"Artist: {music_info.author}")
+print(f"Duration: {music_info.duration}s")
+print(f"Cover art: {music_info.cover}")
+print(f"Audio size: {len(music_info.data)} bytes")
+
+# Save audio file
+with open(f"audio_{music_info.id}.mp3", "wb") as f:
+    f.write(music_info.data)
+```
+
+### Complete Example: Video + Music
+
+```python
+import asyncio
+from tiktok_api import TikTokClient
+
+async def download_tiktok_content(url: str):
+    client = TikTokClient()
+    
+    # Extract video
+    video_info = await client.video(url)
+    
+    with video_info:
+        if video_info.is_video:
+            # Save video
+            filename = f"video_{video_info.id}.mp4"
+            with open(filename, "wb") as f:
+                f.write(video_info.video_bytes)
+            print(f"Saved video: {filename}")
+            print(f"Resolution: {video_info.width}x{video_info.height}")
+            print(f"Duration: {video_info.duration}s")
+    
+    # Extract music
+    music_info = await client.music(url)
+    
+    # Save audio
+    audio_filename = f"audio_{music_info.id}.mp3"
+    with open(audio_filename, "wb") as f:
+        f.write(music_info.data)
+    print(f"Saved audio: {audio_filename}")
+    print(f"Title: {music_info.title}")
+    print(f"Artist: {music_info.author}")
+
+async def main():
+    url = "https://www.tiktok.com/@user/video/123456"
+    await download_tiktok_content(url)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Type Checking
+
+Both models are fully typed and work well with type checkers like mypy:
+
+```python
+from typing import Union
+from tiktok_api import TikTokClient
+from tiktok_api.models import VideoInfo, MusicInfo
+
+async def process_video(url: str) -> VideoInfo:
+    client = TikTokClient()
+    video_info: VideoInfo = await client.video(url)
+    return video_info
+
+async def process_music(url: str) -> MusicInfo:
+    client = TikTokClient()
+    music_info: MusicInfo = await client.music(url)
+    return music_info
+
+async def get_content(url: str) -> Union[VideoInfo, MusicInfo]:
+    client = TikTokClient()
+    # Type checker knows the return types
+    if url.endswith("/music/"):
+        return await client.music(url)
+    else:
+        return await client.video(url)
+```

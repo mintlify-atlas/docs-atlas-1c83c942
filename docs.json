@@ -1,122 +1,107 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "TT-Bot",
+  "theme": "almond",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#27a5e4",
+    "light": "#73c5ed"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "https://media.brand.dev/d9aa03fb-2167-4259-8d10-ef17e697543a.png",
+  "logo": {
+    "light": "https://media.brand.dev/d9aa03fb-2167-4259-8d10-ef17e697543a.png",
+    "dark": "https://media.brand.dev/a18e2852-d64c-4b18-a44d-08f0318c9ae1.png"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/karilaa-dev/tt-bot"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/karilaa-dev/tt-bot"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Deployment",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "deployment/docker",
+              "deployment/docker-compose",
+              "deployment/local-development"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Configuration",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "configuration/environment-variables",
+              "configuration/proxy-setup",
+              "configuration/database",
+              "configuration/localization"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Features",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "features/tiktok-downloads",
+              "features/instagram-downloads",
+              "features/queue-management",
+              "features/admin-commands",
+              "features/statistics"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/retry-strategy",
+              "architecture/proxy-rotation",
+              "architecture/media-processing"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "TikTok API",
             "pages": [
-              "api-reference/introduction"
+              "api/tiktok/client",
+              "api/tiktok/models",
+              "api/tiktok/exceptions"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Instagram API",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/instagram/client",
+              "api/instagram/models",
+              "api/instagram/exceptions"
+            ]
+          },
+          {
+            "group": "Core Modules",
+            "pages": [
+              "api/handlers",
+              "api/media-types",
+              "api/queue-manager",
+              "api/database"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

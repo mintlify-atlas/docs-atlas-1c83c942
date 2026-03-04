@@ -1,0 +1,383 @@
+---
+title: "Docker Compose deployment"
+description: "Deploy TT-Bot with all services using Docker Compose"
+---
+
+Deploy the complete TT-Bot stack with Docker Compose, including the bot, local Telegram Bot API server, statistics bot, and PostgreSQL database.
+
+## Architecture Overview
+
+The Docker Compose setup includes four services:
+
+- **tt-bot** - Main bot that handles TikTok and Instagram downloads
+- **stats-bot** - Statistics bot for analytics and usage graphs
+- **telegram-bot-api** - Local Telegram Bot API server (faster, avoids rate limits)
+- **db** - PostgreSQL 18 database for persistent storage
+
+All services are automatically networked together and can communicate using their service names.
+
+## Prerequisites
+
+- Docker and Docker Compose installed
+- Bot token from [@BotFather](https://t.me/botfather)
+- Telegram API credentials from [my.telegram.org](https://my.telegram.org) (API ID and Hash)
+
+## Setup
+
+<Steps>
+  <Step title="Configure environment">
+    Copy the example environment file and fill in your credentials:
+    
+    ```bash
+    cp .env.example .env
+    ```
+    
+    **Required variables:**
+    
+    ```bash .env
+    # Telegram bot token (required)
+    BOT_TOKEN=your_bot_token_here
+    
+    # Telegram API credentials (required for telegram-bot-api service)
+    TELEGRAM_API_ID=your_api_id
+    TELEGRAM_API_HASH=your_api_hash
+    
+    # Telegram server endpoint (keep default for local Bot API)
+    TG_SERVER=http://telegram-bot-api:8081
+    
+    # Database configuration (optional, uses compose defaults if not set)
+    POSTGRES_USER=postgres
+    POSTGRES_PASSWORD=postgres
+    POSTGRES_DB=ttbot-db
+    DB_URL=postgresql+asyncpg://postgres:postgres@db/ttbot-db
+    ```
+    
+    <Note>
+    The `TG_SERVER` must be set to `http://telegram-bot-api:8081` to use the local Bot API server. This is the service name defined in the compose file.
+    </Note>
+  </Step>
+
+  <Step title="Start all services">
+    Launch the entire stack with one command:
+    
+    ```bash
+    docker compose up
+    ```
+    
+    For detached mode (runs in background):
+    
+    ```bash
+    docker compose up -d
+    ```
+  </Step>
+
+  <Step title="Verify services are running">
+    Check the status of all services:
+    
+    ```bash
+    docker compose ps
+    ```
+    
+    You should see all four services in "Up" state.
+  </Step>
+</Steps>
+
+## Service Details
+
+### tt-bot (Main Bot)
+
+```yaml
+services:
+  tt-bot:
+    build: .
+    image: ghcr.io/karilaa-dev/tt-bot:latest
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      - db
+```
+
+- Builds from local Dockerfile or uses pre-built image
+- Automatically restarts unless manually stopped
+- Waits for database to be ready before starting
+
+**Optional volumes:**
+
+Uncomment in `docker-compose.yml` to enable:
+```yaml
+volumes:
+  - ./cookies.txt:/app/cookies.txt          # Instagram session cookies
+  - ./proxies.txt:/app/proxies.txt:ro       # Proxy list for TikTok requests
+```
+
+### stats-bot (Statistics Bot)
+
+```yaml
+stats-bot:
+  build:
+    context: .
+    dockerfile: Dockerfile.stats
+  image: ghcr.io/karilaa-dev/tt-bot-stats:latest
+  env_file:
+    - .env
+  restart: unless-stopped
+  depends_on:
+    - db
+```
+
+- Separate bot for generating usage statistics and graphs
+- Uses pandas and matplotlib for data visualization
+- Shares the same database with the main bot
+
+### telegram-bot-api (Local API Server)
+
+```yaml
+telegram-bot-api:
+  image: aiogram/telegram-bot-api:latest
+  volumes:
+    - telegram-bot-api-data:/var/lib/telegram-bot-api
+  env_file:
+    - .env
+  restart: unless-stopped
+```
+
+**Benefits of local Bot API:**
+- **Faster uploads** - Direct connection without going through Telegram servers
+- **No rate limits** - Process more requests without hitting API limits
+- **Better file handling** - Improved support for large files
+
+<Tip>
+By default, the local Bot API listens on port 8081 inside the Docker network and isn't exposed to your host. If you need to access it from your host for debugging, add a port mapping:
+
+```yaml
+telegram-bot-api:
+  # ... other config
+  ports:
+    - "8081:8081"
+```
+</Tip>
+
+### db (PostgreSQL)
+
+```yaml
+db:
+  image: postgres:18
+  environment:
+    POSTGRES_USER: ${POSTGRES_USER:-postgres}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    POSTGRES_DB: ${POSTGRES_DB:-ttbot-db}
+  volumes:
+    - pgdata:/var/lib/postgresql/data
+  restart: unless-stopped
+```
+
+- Uses PostgreSQL 18 for data persistence
+- Stores user statistics, download history, and bot state
+- Data persists in a named volume (`pgdata`)
+- Auto-creates tables on first bot startup (no manual migrations needed)
+
+<Note>
+You can override the default database credentials by setting `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` in your `.env` file.
+</Note>
+
+## Common Operations
+
+### Start Services
+
+<CodeGroup>
+```bash All services
+# Start all services (foreground)
+docker compose up
+
+# Start all services (background)
+docker compose up -d
+```
+
+```bash Only the bot
+# Start only tt-bot (and its dependencies)
+docker compose up bot
+
+# Note: This will also start 'db' due to depends_on
+```
+
+```bash Specific service
+# Start a specific service
+docker compose up telegram-bot-api
+```
+</CodeGroup>
+
+<Warning>
+If you start only the `tt-bot` service without `telegram-bot-api`, ensure `TG_SERVER` points to a reachable endpoint (either also start `telegram-bot-api` or set `TG_SERVER=https://api.telegram.org`).
+</Warning>
+
+### Stop Services
+
+```bash
+# Stop all services (keeps containers)
+docker compose stop
+
+# Stop and remove containers
+docker compose down
+
+# Stop and remove containers + volumes (deletes all data)
+docker compose down -v
+```
+
+### Monitor Services
+
+<CodeGroup>
+```bash View logs
+# Tail logs from all services
+docker compose logs -f
+
+# Logs from specific service
+docker compose logs -f tt-bot
+
+# Last 100 lines from all services
+docker compose logs --tail=100
+```
+
+```bash Check status
+# List running services
+docker compose ps
+
+# Show resource usage
+docker stats
+```
+</CodeGroup>
+
+### Rebuild and Update
+
+```bash
+# Rebuild images after code changes
+docker compose build
+
+# Rebuild and restart
+docker compose up --build -d
+
+# Pull latest images and restart
+docker compose pull
+docker compose up -d
+```
+
+## Volumes
+
+The compose file defines two named volumes for data persistence:
+
+```yaml
+volumes:
+  telegram-bot-api-data:  # Telegram Bot API cache and state
+  pgdata:                  # PostgreSQL database files
+```
+
+These volumes persist data across container restarts. To view volumes:
+
+```bash
+docker volume ls
+```
+
+<Warning>
+Running `docker compose down -v` will delete these volumes and all stored data. Use this only when you want to completely reset the bot.
+</Warning>
+
+## Networking
+
+All services run on a default Docker Compose network and can communicate using service names:
+
+- Bot connects to database: `postgresql+asyncpg://postgres:postgres@db/ttbot-db`
+- Bot connects to local API: `http://telegram-bot-api:8081`
+
+No port exposure is required unless you want to access services from your host machine.
+
+## Troubleshooting
+
+### Services fail to start
+
+**Check logs for errors:**
+```bash
+docker compose logs
+```
+
+**Common issues:**
+- Missing required environment variables (`BOT_TOKEN`, `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`)
+- Port conflicts (if you exposed ports that are already in use)
+- Insufficient system resources
+
+### Database connection errors
+
+**Verify database is running:**
+```bash
+docker compose ps db
+```
+
+**Check DB_URL matches your PostgreSQL credentials:**
+```bash
+# Default connection string
+DB_URL=postgresql+asyncpg://postgres:postgres@db/ttbot-db
+```
+
+### telegram-bot-api not accessible
+
+**Ensure the service is running:**
+```bash
+docker compose ps telegram-bot-api
+```
+
+**Check you have valid API credentials:**
+- `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` must be set in `.env`
+- Get them from [my.telegram.org](https://my.telegram.org)
+
+### Bot restarts repeatedly
+
+**View recent logs:**
+```bash
+docker compose logs --tail=50 tt-bot
+```
+
+Look for error messages indicating:
+- Invalid bot token
+- Network connectivity issues
+- Missing dependencies
+
+## Production Recommendations
+
+<Tip>
+**For production deployments:**
+
+1. **Use environment-specific .env files** - Never commit `.env` to version control
+2. **Set strong database passwords** - Change default PostgreSQL credentials
+3. **Configure proxy rotation** - Mount `proxies.txt` for better TikTok reliability
+4. **Enable resource limits** - Add memory/CPU limits to service definitions
+5. **Set up monitoring** - Use Docker health checks and external monitoring tools
+6. **Regular backups** - Backup the `pgdata` volume periodically
+</Tip>
+
+### Adding Resource Limits
+
+Example with resource constraints:
+
+```yaml
+services:
+  tt-bot:
+    # ... other config
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Local Development" icon="code" href="/deployment/local-development">
+    Run the bot locally without Docker
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/environment-variables">
+    Learn about all configuration options
+  </Card>
+</CardGroup>

@@ -1,0 +1,199 @@
+---
+title: "Instagram exceptions"
+description: "Exception types for Instagram API errors"
+---
+
+## Exception Hierarchy
+
+All Instagram API exceptions inherit from the base `InstagramError` class, which itself inherits from Python's built-in `Exception`.
+
+```
+Exception
+└── InstagramError
+    ├── InstagramNetworkError
+    ├── InstagramNotFoundError
+    └── InstagramRateLimitError
+```
+
+## InstagramError
+
+Base exception class for all Instagram API errors.
+
+```python
+class InstagramError(Exception):
+    """Base exception for Instagram API errors."""
+```
+
+This is the parent class for all Instagram-specific exceptions. You can catch this to handle any Instagram API error:
+
+```python
+try:
+    media_info = await client.get_media(url)
+except InstagramError as e:
+    # Handles all Instagram API errors
+    print(f"Instagram error: {e}")
+```
+
+## InstagramNetworkError
+
+Raised when network or connection errors occur during API communication.
+
+```python
+class InstagramNetworkError(InstagramError):
+    """Network or connection error when calling the API."""
+```
+
+### When Raised
+
+- HTTP response status is not 200, 404, or 429
+- Network connection failures
+- Request timeouts
+- Unexpected API responses
+- JSON parsing errors
+
+### Example
+
+```python
+try:
+    media_info = await client.get_media(url)
+except InstagramNetworkError as e:
+    # Network issue - may be retryable
+    logger.error(f"Network error: {e}")
+    # Retry logic here
+```
+
+## InstagramNotFoundError
+
+Raised when the requested Instagram post cannot be found or accessed.
+
+```python
+class InstagramNotFoundError(InstagramError):
+    """Post not found, deleted, or private."""
+```
+
+### When Raised
+
+- API returns HTTP 404 status
+- Post has been deleted
+- Post is private and not accessible
+- Invalid post URL or ID
+- No media items found in the API response
+
+### Example
+
+```python
+try:
+    media_info = await client.get_media(url)
+except InstagramNotFoundError:
+    # Post doesn't exist or is inaccessible
+    print("This post is not available. It may be private or deleted.")
+```
+
+## InstagramRateLimitError
+
+Raised when the RapidAPI rate limit has been exceeded.
+
+```python
+class InstagramRateLimitError(InstagramError):
+    """API rate limit exceeded."""
+```
+
+### When Raised
+
+- API returns HTTP 429 status
+- Too many requests sent in a given timeframe
+- RapidAPI subscription limit reached
+
+### Example
+
+```python
+import asyncio
+
+try:
+    media_info = await client.get_media(url)
+except InstagramRateLimitError:
+    # Rate limit hit - wait and retry
+    print("Rate limit exceeded. Waiting before retry...")
+    await asyncio.sleep(60)  # Wait 60 seconds
+    # Retry logic here
+```
+
+## Error Handling Patterns
+
+### Specific Exception Handling
+
+Handle each exception type differently based on the error:
+
+```python
+from instagram_api.client import InstagramClient
+from instagram_api.exceptions import (
+    InstagramNotFoundError,
+    InstagramRateLimitError,
+    InstagramNetworkError,
+)
+
+client = InstagramClient()
+
+try:
+    media_info = await client.get_media(url)
+    # Process media_info
+    
+except InstagramNotFoundError:
+    # User-facing error - post doesn't exist
+    await message.reply("Post not found or is private")
+    
+except InstagramRateLimitError:
+    # Temporary issue - notify user to try later
+    await message.reply("Service limit reached. Please try again in a few minutes.")
+    
+except InstagramNetworkError as e:
+    # Technical error - log and show generic message
+    logger.error(f"Instagram API error: {e}")
+    await message.reply("Unable to download. Please try again later.")
+```
+
+### Catch-All Handling
+
+Catch all Instagram errors with a single handler:
+
+```python
+from instagram_api.exceptions import InstagramError
+
+try:
+    media_info = await client.get_media(url)
+except InstagramError as e:
+    # Handle all Instagram API errors uniformly
+    logger.warning(f"Instagram API failed: {e}")
+    await message.reply("Unable to process Instagram link")
+```
+
+### Retry Logic
+
+Implement retry logic for transient errors:
+
+```python
+import asyncio
+from instagram_api.exceptions import InstagramNetworkError, InstagramRateLimitError
+
+max_retries = 3
+for attempt in range(max_retries):
+    try:
+        media_info = await client.get_media(url)
+        break  # Success
+        
+    except InstagramRateLimitError:
+        if attempt < max_retries - 1:
+            await asyncio.sleep(30 * (attempt + 1))  # Exponential backoff
+        else:
+            raise  # Give up after max retries
+            
+    except InstagramNetworkError:
+        if attempt < max_retries - 1:
+            await asyncio.sleep(5)  # Brief retry delay
+        else:
+            raise
+            
+    except InstagramNotFoundError:
+        # Don't retry - post doesn't exist
+        raise
+```

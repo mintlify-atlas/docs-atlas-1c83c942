@@ -1,0 +1,458 @@
+---
+title: "Local development"
+description: "Run TT-Bot locally without Docker using uv"
+---
+
+Set up a local development environment to run TT-Bot directly on your machine using `uv`, a fast Python package manager.
+
+## Prerequisites
+
+- Python 3.13 (required, specified in `pyproject.toml`)
+- Bot token from [@BotFather](https://t.me/botfather)
+- Git (for cloning the repository)
+
+## Quick Start
+
+<Steps>
+  <Step title="Install uv">
+    Install the `uv` package manager:
+    
+    ```bash
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    ```
+    
+    Ensure `~/.local/bin` is on your PATH:
+    
+    ```bash
+    export PATH="$HOME/.local/bin:$PATH"
+    ```
+    
+    <Tip>
+    Add the PATH export to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to make it permanent.
+    </Tip>
+  </Step>
+
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/yourusername/tt-bot.git
+    cd tt-bot
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    Use `uv` to sync all dependencies:
+    
+    ```bash
+    uv sync
+    ```
+    
+    This creates a virtual environment in `.venv/` and installs all required packages from `uv.lock`.
+  </Step>
+
+  <Step title="Configure environment">
+    Create a `.env` file from the example:
+    
+    ```bash
+    cp .env.example .env
+    ```
+    
+    Set the required variables:
+    
+    ```bash .env
+    # Required: Your bot token
+    BOT_TOKEN=your_bot_token_here
+    
+    # Use public Telegram API for local development
+    TG_SERVER=https://api.telegram.org
+    ```
+    
+    <Note>
+    For local development, it's simplest to use the public Telegram API (`https://api.telegram.org`). If you want to run the full Docker Compose stack alongside your local bot for the database and local Bot API, see the [Advanced Setup](#with-docker-compose-services) section.
+    </Note>
+  </Step>
+
+  <Step title="Run the bot">
+    Start the bot using `uv`:
+    
+    ```bash
+    uv run python main.py
+    ```
+    
+    Or use the shorter command:
+    
+    ```bash
+    uv run main.py
+    ```
+    
+    The bot will start and connect to Telegram. You should see initialization logs.
+  </Step>
+</Steps>
+
+## Project Structure
+
+Key files for development:
+
+```
+tt-bot/
+├── main.py                 # Bot entry point
+├── stats.py                # Statistics bot entry point
+├── pyproject.toml          # Project metadata and dependencies
+├── uv.lock                 # Locked dependency versions
+├── .env                    # Environment configuration (create from .env.example)
+├── tiktok_api/            # TikTok video extraction
+│   └── client.py          # Core TikTok client with 3-part retry strategy
+├── instagram_api/         # Instagram extraction via RapidAPI
+├── handlers/              # Telegram message handlers
+│   └── link_dispatcher.py # Routes Instagram vs TikTok links
+├── media_types/           # Media sending/processing
+├── data/                  # Configuration and database
+│   ├── config.py          # Bot configuration
+│   ├── db_service.py      # Database operations
+│   └── locale/            # Translations (XX.json files)
+└── misc/                  # Queue management and utilities
+```
+
+<Tip>
+For a complete codebase overview, see the included `docs/CODEBASE_MAP.md` in the repository.
+</Tip>
+
+## Development Workflow
+
+### Running the Bot
+
+<CodeGroup>
+```bash Main bot
+# Run the main download bot
+uv run main.py
+```
+
+```bash Statistics bot
+# Run the statistics bot (requires database)
+uv run stats.py
+```
+
+```bash With Python directly
+# Activate the virtual environment first
+source .venv/bin/activate
+
+# Then run with Python
+python main.py
+```
+</CodeGroup>
+
+### Hot Reload
+
+For development with automatic reloading on code changes, use a tool like `watchdog`:
+
+```bash
+# Install watchdog
+uv pip install watchdog
+
+# Run with auto-reload
+watchmedo auto-restart --directory=./ --pattern="*.py" --recursive -- uv run main.py
+```
+
+<Warning>
+Hot reload will restart the bot on every file change, which may cause Telegram rate limiting if you're making frequent changes. Use with caution.
+</Warning>
+
+### Debugging
+
+**Using Python debugger (pdb):**
+
+Add breakpoints in your code:
+```python
+import pdb; pdb.set_trace()
+```
+
+**Using VS Code:**
+
+Create `.vscode/launch.json`:
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: TT-Bot",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/main.py",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      },
+      "envFile": "${workspaceFolder}/.env"
+    }
+  ]
+}
+```
+
+Then press F5 to start debugging.
+
+**Using PyCharm:**
+
+1. Open the project in PyCharm
+2. Configure the Python interpreter to use `.venv/bin/python`
+3. Create a run configuration for `main.py`
+4. Set breakpoints and click the debug button
+
+### Running Tests
+
+If the project includes tests:
+
+```bash
+# Run tests with pytest
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov=tiktok_api --cov=instagram_api
+```
+
+## Database Setup
+
+### Using SQLite (Default)
+
+By default, the bot uses SQLite for local development. No additional configuration needed:
+
+```bash .env
+# SQLite (default if DB_URL not set)
+# File: ./bot_database.db
+```
+
+Database tables are auto-created on first startup using SQLAlchemy - no manual migrations required.
+
+### Using PostgreSQL
+
+For testing with PostgreSQL locally:
+
+**Option 1: Local PostgreSQL installation**
+
+```bash
+# Install PostgreSQL (Ubuntu/Debian)
+sudo apt install postgresql
+
+# Create database
+sudo -u postgres createdb ttbot-db
+
+# Update .env
+DB_URL=postgresql+asyncpg://postgres:postgres@localhost/ttbot-db
+```
+
+**Option 2: Use Docker Compose database only**
+
+See [Advanced Setup](#with-docker-compose-services) below.
+
+## Advanced Setup
+
+### With Docker Compose Services
+
+Run the local Bot API and database from Docker Compose while running the bot code locally:
+
+<Steps>
+  <Step title="Start only infrastructure services">
+    ```bash
+    docker compose up -d telegram-bot-api db
+    ```
+  </Step>
+
+  <Step title="Configure .env for local Bot API">
+    ```bash .env
+    BOT_TOKEN=your_bot_token_here
+    
+    # Point to local Bot API (exposed on host)
+    TG_SERVER=http://localhost:8081
+    TELEGRAM_API_ID=your_api_id
+    TELEGRAM_API_HASH=your_api_hash
+    
+    # Point to Docker Compose database
+    DB_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/ttbot-db
+    ```
+  </Step>
+
+  <Step title="Expose ports in docker-compose.yml">
+    Edit `docker-compose.yml` to expose ports:
+    
+    ```yaml
+    telegram-bot-api:
+      # ... other config
+      ports:
+        - "8081:8081"
+    
+    db:
+      # ... other config
+      ports:
+        - "5432:5432"
+    ```
+  </Step>
+
+  <Step title="Run the bot locally">
+    ```bash
+    uv run main.py
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+This hybrid approach gives you the benefits of local development (fast iteration, debugging) while using production-like infrastructure (local Bot API, PostgreSQL).
+</Tip>
+
+### Installing Optional Dependencies
+
+The project uses optional dependency groups:
+
+```bash
+# Install main bot dependencies (default)
+uv sync --extra main
+
+# Install statistics bot dependencies
+uv sync --extra stats
+
+# Install both
+uv sync --extra main --extra stats
+```
+
+**Dependency groups:**
+
+- **main** - Main bot dependencies (yt-dlp, Pillow, curl_cffi, etc.)
+- **stats** - Statistics bot dependencies (pandas, matplotlib, APScheduler)
+
+### Using Proxies
+
+For TikTok proxy rotation:
+
+1. Create `proxies.txt` in the project root:
+   ```
+   http://user:pass@proxy1.example.com:8080
+   http://user:pass@proxy2.example.com:8080
+   socks5://proxy3.example.com:1080
+   ```
+
+2. The bot will automatically detect and use the proxy list
+
+### Using Instagram Cookies
+
+For Instagram content:
+
+1. Export your Instagram session cookies to `cookies.txt` (Netscape format)
+2. Place the file in the project root
+3. The bot will use authenticated requests for better reliability
+
+## Troubleshooting
+
+### Python version mismatch
+
+**Error:** `Requires Python ==3.13.*, but ...`
+
+**Solution:** Install Python 3.13. Check your version:
+```bash
+python --version
+```
+
+Use a Python version manager like `pyenv` to install 3.13:
+```bash
+pyenv install 3.13
+pyenv local 3.13
+```
+
+### uv command not found
+
+**Solution:** Ensure `~/.local/bin` is on your PATH:
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+
+# Verify installation
+uv --version
+```
+
+### Module import errors
+
+**Error:** `ModuleNotFoundError: No module named 'aiogram'`
+
+**Solution:** Dependencies not installed. Run:
+```bash
+uv sync
+```
+
+### Bot doesn't respond to commands
+
+**Common causes:**
+
+1. **Invalid BOT_TOKEN** - Verify token from @BotFather
+2. **Bot not started** - Send `/start` to your bot on Telegram
+3. **Network issues** - Check internet connection
+4. **Rate limiting** - Wait a few minutes if making many requests
+
+**Debug steps:**
+```bash
+# Check bot logs for errors
+uv run main.py
+
+# Verify token is loaded
+python -c "from dotenv import load_dotenv; import os; load_dotenv(); print(os.getenv('BOT_TOKEN'))"
+```
+
+### Database errors
+
+**Error:** `asyncpg.exceptions.InvalidPasswordError`
+
+**Solution:** Check your PostgreSQL credentials in `DB_URL`
+
+**Error:** `OperationalError: unable to open database file`
+
+**Solution:** SQLite file permissions issue. Ensure the project directory is writable.
+
+## Development Tips
+
+<Tip>
+**Best practices for TT-Bot development:**
+
+1. **Use SQLite for quick testing** - Switch to PostgreSQL only when testing database-specific features
+2. **Test with public API first** - Only use local Bot API when testing upload performance
+3. **Read AGENTS.md** - Contains critical gotchas and architecture notes
+4. **Watch Chrome version** - TikTok extraction uses Chrome 120 impersonation (newer versions may break)
+5. **Clean up VideoInfo** - Always use context managers for slideshow processing
+</Tip>
+
+### Adding New Features
+
+**New command:**
+1. Create handler in `handlers/your_handler.py`
+2. Register router in `main.py`
+
+**New language:**
+1. Create `data/locale/XX.json` (e.g., `es.json` for Spanish)
+2. Bot auto-detects and loads language files
+
+**New video source:**
+1. Create `source_api/` module with extraction logic
+2. Add URL pattern filter in `handlers/link_dispatcher.py`
+3. Create handler to process requests
+
+### Code Quality
+
+Run linters and formatters:
+
+```bash
+# Install dev tools
+uv pip install ruff black mypy
+
+# Format code
+black .
+
+# Lint
+ruff check .
+
+# Type check
+mypy .
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker">
+    Deploy with Docker for production
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/environment-variables">
+    Learn about all configuration options
+  </Card>
+</CardGroup>

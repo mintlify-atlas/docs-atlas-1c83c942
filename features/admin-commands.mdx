@@ -1,0 +1,321 @@
+---
+title: "Admin commands"
+description: "Bot administration and management features"
+---
+
+TT-Bot includes admin commands for bot management, user communication, and broadcasting announcements.
+
+## Admin levels
+
+The bot has two admin permission levels configured via environment variables:
+
+### Primary admins
+
+```bash
+ADMIN_IDS=[123456789, 987654321]
+```
+
+Primary admins can:
+- Access admin menu (`/admin`)
+- Create and send broadcasts
+- View and edit announcement messages
+
+### Secondary admins
+
+```bash
+SECOND_IDS=[111222333, 444555666]
+```
+
+Secondary admins can:
+- Send direct messages to users (`/msg`)
+- Export user list (`/export`)
+- View error details in error messages
+
+## Admin menu commands
+
+### /admin - Open admin menu
+
+Opens the admin keyboard with broadcast controls:
+
+```python
+# From handlers/advert.py:54
+@advert_router.message(Command("admin"), IsAdmin(), F.chat.type == "private")
+async def send_admin(message: Message):
+    await message.answer("🤖You opened admin menu", reply_markup=admin_keyboard)
+```
+
+Admin keyboard buttons:
+- 👁‍🗨 Check message - Preview current announcement
+- ✏ Edit message - Create/update announcement
+- 📢 Send message - Broadcast to all users
+- 🔽 Hide keyboard - Minimize keyboard
+
+```python
+# From handlers/advert.py:21
+admin_keyboard = ReplyKeyboardBuilder()
+admin_keyboard.button(text="👁‍🗨Check message")
+admin_keyboard.button(text="✏Edit message")
+admin_keyboard.button(text="📢Send message")
+admin_keyboard.button(text="🔽Hide keyboard")
+admin_keyboard.adjust(2, 1, 1)
+```
+
+### 👁‍🗨 Check message - Preview announcement
+
+Shows a preview of the current announcement message:
+
+```python
+# From handlers/advert.py:59
+@advert_router.message(F.text == "👁‍🗨Check message", IsAdmin())
+async def adb_check(message: Message):
+    if advert_message is not None:
+        await advert_message.send_copy(message.from_user.id)
+    else:
+        await message.answer("⚠️You have not created a message yet")
+```
+
+### ✏ Edit message - Create announcement
+
+Enters edit mode to create or update the announcement:
+
+```python
+# From handlers/advert.py:99
+@advert_router.message(F.text == "✏Edit message", IsAdmin())
+async def adv_change(message: Message, state: FSMContext):
+    await message.answer("📝Write new message", reply_markup=back_keyboard)
+    await state.set_state(AdminMenu.add)
+
+@advert_router.message(AdminMenu.add)
+async def notify_text(message: Message, state: FSMContext):
+    global advert_message
+    advert_message = copy(message)
+    await message.answer("✅Message added", reply_markup=admin_keyboard)
+    await state.clear()
+```
+
+Supports:
+- Text messages
+- Images with captions
+- Videos with captions
+- Formatted text (HTML/Markdown)
+- Buttons and inline keyboards
+
+### 📢 Send message - Broadcast to all users
+
+Sends the announcement to all users in the database:
+
+```python
+# From handlers/advert.py:67
+@advert_router.message(F.text == "📢Send message", IsAdmin())
+async def adv_go(message: Message):
+    if advert_message is not None:
+        msg = await message.answer("<code>Announcement started</code>")
+        users = await get_user_ids()
+        num = 0
+        blocked = 0
+        errors = 0
+        for user_id in users:
+            try:
+                await advert_message.send_copy(user_id)
+                num += 1
+            except TelegramForbiddenError:
+                blocked += 1
+                logging.debug(f"User {user_id} blocked the bot")
+            except TelegramBadRequest as e:
+                errors += 1
+                logging.debug(f"Failed to send to {user_id}: {e}")
+            except Exception as e:
+                errors += 1
+                logging.warning(f"Unexpected error sending to {user_id}: {e}")
+            await sleep(0.04)
+        await msg.delete()
+        await message.answer(
+            f"✅Message received by <b>{num}</b> users\n"
+            f"🚫Blocked: <b>{blocked}</b>\n"
+            f"❌Errors: <b>{errors}</b>"
+        )
+```
+
+Features:
+- Rate limiting (0.04s between sends = 25 messages/second)
+- Error tracking (blocked users, failed sends)
+- Comprehensive statistics after completion
+- Continues on individual failures
+
+### 🔽 Hide keyboard - Minimize keyboard
+
+```python
+# From handlers/advert.py:46
+@advert_router.message(F.text == "🔽Hide keyboard")
+@advert_router.message(Command("hide"))
+async def send_clear_keyboard(message: Message):
+    await message.answer(
+        "🔽You successfully hide the keyboard", reply_markup=ReplyKeyboardRemove()
+    )
+```
+
+## Secondary admin commands
+
+### /msg - Send direct message to user
+
+Send a message to a specific user/chat ID:
+
+```python
+# From handlers/admin.py:15
+@admin_router.message(
+    Command("msg", "tell", "say", "send"), F.chat.type == "private", IsSecondAdmin()
+)
+async def send_hi(message: Message):
+    text = message.text.split(" ", 2)
+    try:
+        await bot.send_message(chat_id=text[1], text=text[2])
+        await message.answer("Message sent")
+    except TelegramForbiddenError:
+        await message.answer("User has blocked the bot")
+    except TelegramBadRequest as e:
+        await message.answer(f"Bad request: {e}")
+    except Exception as e:
+        logging.error(f"Failed to send message: {e}")
+        await message.answer("ops")
+```
+
+Usage:
+```
+/msg 123456789 Hello from admin!
+/tell -100987654321 Group announcement
+```
+
+Aliases: `/msg`, `/tell`, `/say`, `/send`
+
+### /export - Export user list
+
+Exports all user IDs to a text file:
+
+```python
+# From handlers/admin.py:32
+@admin_router.message(Command("export"), F.chat.type == "private", IsSecondAdmin())
+async def export_users(message: Message):
+    users_file = await get_users_file()
+    await message.answer_document(users_file, caption="User list")
+```
+
+The file contains one user ID per line, suitable for external analysis or migration.
+
+## Admin filters
+
+Commands are protected by custom filters:
+
+### IsAdmin filter
+
+```python
+# From misc/utils.py (referenced in handlers)
+class IsAdmin(Filter):
+    async def __call__(self, message: Message) -> bool:
+        return message.from_user.id in admin_ids
+```
+
+Checks if user is in `ADMIN_IDS` list.
+
+### IsSecondAdmin filter
+
+```python
+class IsSecondAdmin(Filter):
+    async def __call__(self, message: Message) -> bool:
+        return message.from_user.id in second_ids
+```
+
+Checks if user is in `SECOND_IDS` list.
+
+## FSM states for announcements
+
+The broadcast feature uses Finite State Machine for multi-step flows:
+
+```python
+# From handlers/advert.py:34
+class AdminMenu(StatesGroup):
+    menu = State()
+    add = State()
+```
+
+State flow:
+1. Admin clicks "✏ Edit message"
+2. Bot enters `AdminMenu.add` state
+3. Admin sends message content
+4. Bot stores message and returns to menu
+5. State cleared automatically
+
+### Cancel/Back commands
+
+```python
+# From handlers/advert.py:39
+@advert_router.message(F.text == "↩Return")
+@advert_router.message(Command("stop", "cancel", "back"))
+async def cancel(message: Message, state: FSMContext):
+    await message.answer("↩You have returned", reply_markup=admin_keyboard)
+    await state.clear()
+```
+
+Aliases: `/stop`, `/cancel`, `/back`, or "↩Return" button
+
+## Error visibility for admins
+
+Secondary admins see detailed error messages:
+
+```python
+# From handlers/get_video.py:304
+if message.chat.id in second_ids:
+    await message.reply("<code>{0}</code>".format(error_text))
+```
+
+Regular users only see generic error messages, while admins see full stack traces.
+
+## Configuration
+
+### Environment variables
+
+```bash
+# Primary admins (can broadcast)
+ADMIN_IDS=[123456789]
+
+# Secondary admins (can send direct messages and export users)
+SECOND_IDS=[123456789, 987654321]
+```
+
+### Loading configuration
+
+```python
+# From data/config.py
+admin_ids = _parse_json_list("ADMIN_IDS")
+second_ids = _parse_json_list("SECOND_IDS")
+```
+
+IDs are parsed from JSON arrays in environment variables.
+
+## Best practices
+
+### Broadcast guidelines
+
+1. **Preview first**: Always use "👁‍🗨 Check message" before broadcasting
+2. **Rate limiting**: Built-in 0.04s delay prevents Telegram rate limits
+3. **Error tolerance**: Broadcast continues even if individual sends fail
+4. **Statistics**: Review success/blocked/error counts after completion
+
+### Direct messaging
+
+1. **Use for**: Responding to specific user issues
+2. **Avoid for**: Mass messages (use broadcast instead)
+3. **Handle errors**: User might have blocked the bot
+
+### User export
+
+1. **Privacy**: Exported data contains only user IDs, no personal info
+2. **Use cases**: Analytics, migration, backup
+3. **Format**: Plain text, one ID per line
+
+## Security considerations
+
+- Commands only work in private chats (except keyboard buttons)
+- Admin IDs must be configured before deployment
+- No runtime admin promotion (must restart bot)
+- Filters prevent unauthorized access
+- Error messages sanitized for non-admins

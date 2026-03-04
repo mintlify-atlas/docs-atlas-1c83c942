@@ -1,0 +1,344 @@
+---
+title: "Instagram downloads"
+description: "Download Instagram videos and images from posts and reels"
+---
+
+TT-Bot supports downloading Instagram content (videos, images, and carousels) using the RapidAPI Instagram Downloader service.
+
+## Supported content
+
+The bot can download from:
+
+- **Posts** - Single images or videos
+- **Reels** - Short-form videos  
+- **Carousels** - Multiple images/videos in a single post
+- **TV videos** - IGTV content
+
+### URL patterns
+
+Supported Instagram URL formats:
+
+```python
+# From instagram_api/client.py:18
+INSTAGRAM_URL_REGEX = re.compile(
+    r"https?://(?:www\.)?instagram\.com/(?:p|reels?|reel|tv|stories)/[\w-]+",
+    re.IGNORECASE,
+)
+```
+
+Examples:
+- `https://www.instagram.com/p/ABC123/`
+- `https://www.instagram.com/reel/XYZ789/`
+- `https://instagram.com/tv/DEF456/`
+
+## RapidAPI integration
+
+The bot uses the Instagram Downloader API from RapidAPI:
+
+```python
+# From instagram_api/client.py:28
+class InstagramClient:
+    async def get_media(self, url: str) -> InstagramMediaInfo:
+        session = _get_http_session()
+        api_key = config["instagram"]["rapidapi_key"]
+
+        headers = {
+            "X-Rapidapi-Key": api_key,
+            "X-Rapidapi-Host": _RAPIDAPI_HOST,
+        }
+        api_url = f"https://{_RAPIDAPI_HOST}/convert"
+```
+
+### API host
+
+```python
+_RAPIDAPI_HOST = (
+    "instagram-downloader-download-instagram-stories-videos4.p.rapidapi.com"
+)
+```
+
+### Configuration
+
+Set your RapidAPI key in `.env`:
+
+```bash
+RAPIDAPI_KEY=your_api_key_here
+```
+
+The key is loaded from config:
+
+```python
+api_key = config["instagram"]["rapidapi_key"]
+```
+
+## Usage examples
+
+### Download Instagram video
+
+Send an Instagram URL to the bot:
+
+```
+https://www.instagram.com/reel/ABC123/
+```
+
+The bot:
+1. Detects Instagram URL pattern
+2. Calls RapidAPI to extract media info
+3. Downloads video and thumbnail in parallel
+4. Sends video back to user
+
+```python
+# From handlers/instagram.py:84
+# Download video and thumbnail concurrently
+thumb_coro = _download_url(media_info.thumbnail_url) if media_info.thumbnail_url else None
+if thumb_coro:
+    video_bytes, thumb_bytes = await asyncio.gather(
+        _download_url(video_url), thumb_coro
+    )
+else:
+    video_bytes = await _download_url(video_url)
+    thumb_bytes = None
+```
+
+### Download Instagram carousel
+
+Carousels with multiple images/videos are handled automatically:
+
+```python
+# From handlers/instagram.py:136
+# Collect all media URLs (images and videos in carousels)
+media_items = media_info.media
+if image_limit:
+    media_items = media_items[:image_limit]
+
+# Download all media in parallel
+download_tasks = [_download_url(item.url) for item in media_items]
+all_bytes = await asyncio.gather(*download_tasks)
+```
+
+- Downloads all items in parallel
+- Converts HEIC/non-native images to PNG
+- Sends in batches of 10 (Telegram limit)
+- Group chats limited to 10 items
+
+### File mode vs. photo mode
+
+Users can toggle between sending as files or compressed photos:
+
+```python
+# From handlers/instagram.py:109
+if file_mode:
+    await bot.send_document(
+        chat_id=message.chat.id,
+        document=BufferedInputFile(video_bytes, "instagram_video.mp4"),
+        thumbnail=thumb,
+        caption=caption,
+        reply_to_message_id=message.message_id,
+        disable_content_type_detection=True,
+    )
+else:
+    await bot.send_video(
+        chat_id=message.chat.id,
+        video=BufferedInputFile(video_bytes, "instagram_video.mp4"),
+        thumbnail=thumb,
+        caption=caption,
+        reply_to_message_id=message.message_id,
+        supports_streaming=True,
+    )
+```
+
+## Error handling
+
+The bot handles various Instagram API errors:
+
+### 404 - Not found
+
+```python
+# From instagram_api/client.py:43
+if response.status == 404:
+    raise InstagramNotFoundError("Post not found or private")
+```
+
+Shown when:
+- Post was deleted
+- Post is private
+- Invalid URL
+
+### 429 - Rate limit
+
+```python
+if response.status == 429:
+    raise InstagramRateLimitError("API rate limit exceeded")
+```
+
+RapidAPI has usage limits based on your subscription tier.
+
+### Network errors
+
+```python
+if response.status != 200:
+    text = await response.text()
+    logger.error(
+        f"Instagram API error {response.status}: {text}"
+    )
+    raise InstagramNetworkError(
+        f"API returned status {response.status}"
+    )
+```
+
+## Image processing
+
+The bot automatically converts non-native image formats:
+
+```python
+# From handlers/instagram.py:160
+async def maybe_convert(item, img_bytes):
+    if item.type != "image":
+        return img_bytes
+    ext = detect_image_format(img_bytes)
+    if ext not in _NATIVE_EXTENSIONS:
+        try:
+            return await loop.run_in_executor(
+                executor, convert_image_to_png, img_bytes
+            )
+        except Exception as e:
+            logger.error(f"Failed to convert image: {e}")
+    return img_bytes
+```
+
+### Supported native formats
+
+```python
+_NATIVE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+```
+
+HEIC and other formats are converted to PNG for Telegram compatibility.
+
+## Inline mode support
+
+Instagram content works in inline mode for sharing in any chat:
+
+```python
+# From handlers/instagram.py:225
+async def send_instagram_inline(
+    inline_message_id: str,
+    instagram_url: str,
+    lang: str,
+    user_id: int,
+    username: str | None,
+    full_name: str | None,
+) -> None:
+    """Download Instagram media and send it as an inline message edit."""
+    client = InstagramClient()
+    media_info = await client.get_media(instagram_url)
+
+    if media_info.is_video:
+        await _send_instagram_inline_video(
+            inline_message_id, media_info, lang, user_id, username, full_name
+        )
+    else:
+        await _send_instagram_inline_image(
+            inline_message_id, media_info, lang, user_id, username, full_name
+        )
+```
+
+### Storage channel requirement
+
+Inline mode requires uploading to a storage channel first to get file IDs:
+
+```python
+# From handlers/instagram.py:291
+storage_msg = await bot.send_video(
+    chat_id=STORAGE_CHANNEL_ID,
+    video=BufferedInputFile(video_bytes, "instagram_video.mp4"),
+    caption=_build_storage_caption(
+        media_info.link, user_id, username, full_name
+    ),
+    parse_mode="HTML",
+    disable_notification=True,
+    thumbnail=thumb_file,
+    supports_streaming=True,
+)
+
+file_id = storage_msg.video.file_id if storage_msg.video else None
+```
+
+Set `STORAGE_CHANNEL_ID` in `.env` to enable inline mode.
+
+## Response format
+
+The RapidAPI response includes:
+
+```python
+# From instagram_api/client.py:74
+media_items = []
+for item in data.get("media", []):
+    media_items.append(
+        InstagramMediaItem(
+            type=item.get("type", "image"),
+            url=item["url"],
+            thumbnail=item.get("thumbnail"),
+            quality=item.get("quality"),
+        )
+    )
+```
+
+Each media item contains:
+- `type` - "image" or "video"
+- `url` - Direct download URL
+- `thumbnail` - Thumbnail URL (for videos)
+- `quality` - Media quality indicator
+
+## Performance
+
+### Parallel downloads
+
+All carousel items download in parallel:
+
+```python
+# From handlers/instagram.py:142
+download_tasks = [_download_url(item.url) for item in media_items]
+all_bytes = await asyncio.gather(*download_tasks)
+```
+
+### Image conversion
+
+Image conversion runs in thread pool to avoid blocking:
+
+```python
+# From handlers/instagram.py:165
+return await loop.run_in_executor(
+    executor, convert_image_to_png, img_bytes
+)
+```
+
+### Batched sending
+
+Large carousels are split into batches of 10:
+
+```python
+# From handlers/instagram.py:183
+# Split into batches of 10
+batches = [
+    items_with_bytes[i : i + 10]
+    for i in range(0, len(items_with_bytes), 10)
+]
+```
+
+## Database logging
+
+All Instagram downloads are logged to the database:
+
+```python
+# From handlers/instagram.py:62
+is_images = not media_info.is_video
+try:
+    await add_video(message.chat.id, instagram_url, is_images)
+    logger.info(
+        f"Instagram Download: CHAT {message.chat.id} - URL {instagram_url}"
+    )
+except Exception as e:
+    logger.error(f"Can't write into database: {e}")
+```
+
+The `is_images` flag distinguishes between video and image posts for statistics.
