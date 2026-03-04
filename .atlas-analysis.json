@@ -1,0 +1,113 @@
+{
+  "projectType": "saas",
+  "projectName": "TT-Bot",
+  "projectDescription": "Production-grade Telegram bot for downloading TikTok and Instagram videos, slideshows, and audio without watermarks.",
+  "theme": "almond",
+  "primaryColor": "#27a5e4",
+  "lightColor": "#73c5ed",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/docker-compose",
+              "deployment/local-development"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment-variables",
+              "configuration/proxy-setup",
+              "configuration/database",
+              "configuration/localization"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/tiktok-downloads",
+              "features/instagram-downloads",
+              "features/queue-management",
+              "features/admin-commands",
+              "features/statistics"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/retry-strategy",
+              "architecture/proxy-rotation",
+              "architecture/media-processing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "TikTok API",
+            "pages": [
+              "api/tiktok/client",
+              "api/tiktok/models",
+              "api/tiktok/exceptions"
+            ]
+          },
+          {
+            "group": "Instagram API",
+            "pages": [
+              "api/instagram/client",
+              "api/instagram/models",
+              "api/instagram/exceptions"
+            ]
+          },
+          {
+            "group": "Core Modules",
+            "pages": [
+              "api/handlers",
+              "api/media-types",
+              "api/queue-manager",
+              "api/database"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "TikTok video, slideshow, and audio downloads without watermarks",
+    "Instagram video and image downloads via RapidAPI",
+    "3-part retry strategy with automatic proxy rotation",
+    "Multi-language support (8 languages)",
+    "Queue management with per-user concurrency limits",
+    "Admin commands and broadcast messaging",
+    "Real-time statistics tracking and visualization",
+    "Chrome 120 impersonation to bypass TikTok WAF"
+  ],
+  "publicApiSurface": [
+    "TikTokClient.get_video_info()",
+    "TikTokClient.get_music_info()",
+    "TikTokClient.download_video()",
+    "InstagramClient.get_media()",
+    "ProxyManager.get_proxy()",
+    "ProxyManager.rotate_proxy()",
+    "QueueManager.add_to_queue()",
+    "VideoInfo class",
+    "MusicInfo class",
+    "InstagramMediaInfo class"
+  ]
+}
